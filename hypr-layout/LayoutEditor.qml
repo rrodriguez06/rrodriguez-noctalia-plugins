@@ -367,7 +367,7 @@ Item {
         var pad = Style.marginM
         // marge haute supplémentaire : les en-têtes (nom + onglets ws + « + ») sont posés
         // au-dessus des cadres -> on leur réserve leur hauteur pour ne pas les rogner
-        var topPad = pad + 22 * Style.uiScaleRatio + Style.marginXXS
+        var topPad = pad + 22 * Style.uiScaleRatio + Style.marginS
         var availW = canvasArea.width - 2 * pad
         var availH = canvasArea.height - topPad - pad
         var s = Math.min(availW / bw, availH / bh)
@@ -1270,10 +1270,12 @@ Item {
                 id: frameHeader
                 required property var modelData
                 readonly property string frameName: modelData.name
+                // hauteur explicite (un Row n'expose pas sa height de façon fiable pour s'auto-positionner)
+                readonly property real headerH: 22 * Style.uiScaleRatio
                 x: modelData.x + Style.marginXS
                 // placé juste AU-DESSUS du cadre (et non dedans) : n'empiète plus sur le contenu
                 // du ws ni sur les poignées de split, donc plus de vol de clic du bouton « + »
-                y: modelData.y - height - Style.marginXXS
+                y: modelData.y - headerH - Style.marginS
                 spacing: Style.marginXXS
                 z: 40
                 Behavior on x { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
