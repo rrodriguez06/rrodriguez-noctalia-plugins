@@ -783,10 +783,17 @@ Item {
     // épinglée courante dans cette propriété string réactive, qui pilote la sélection et le bouton
     // reset. Mise à jour à l'ouverture du menu et après chaque mutation.
     property string menuSelCmd: ""
+    // Capture persistante du descripteur « directory » (base + flag + fenêtre cible). Le champ
+    // répertoire valide via onEditingFinished, qui se déclenche à la PERTE DE FOCUS — y compris
+    // quand on ferme le menu en cliquant à côté, instant où closeWindowMenu() a déjà remis
+    // menuWinId/menuOpts à zéro. On valide donc sur ces valeurs capturées, pas sur l'état vivant.
+    property int dirCommitWinId: -1
+    property var dirCommitBase: null
+    property string dirCommitFlag: ""
 
     function openWindowMenu(id, ox, oy) {
         menuWinId = id; menuX = ox; menuY = oy
-        menuOpts = null; menuOptsLoading = true; menuAdvanced = false
+        menuOpts = null; menuOptsLoading = true; menuAdvanced = false; dirCommitWinId = -1
         _refreshMenuSel()
         var w = windowById(id)
         if (w && mainInstance) mainInstance.requestAppOptions(w["class"])
@@ -844,11 +851,15 @@ Item {
         var l = _asList(w.cmd_user)
         return (l && l.length) ? l[l.length - 1] : ""
     }
-    function applyDir(id, path) {
+    // Valide le répertoire saisi. S'appuie sur la capture persistante (dirCommit*) : au moment où
+    // onEditingFinished se déclenche (perte de focus / fermeture du menu), menuWinId et menuOpts
+    // peuvent déjà avoir été remis à zéro par closeWindowMenu().
+    function applyDir(path) {
+        var id = dirCommitWinId
+        if (id < 0) return
         var p = ("" + path).trim()
-        if (!menuOpts || menuOpts.kind !== "directory") return
         if (!p.length) { clearWindowCmd(id); return }
-        setWindowCmd(id, (_asList(menuOpts.base) || []).concat([menuOpts.flag, p]))
+        setWindowCmd(id, (_asList(dirCommitBase) || []).concat([dirCommitFlag, p]))
     }
 
     // Descripteur app-options reçu de façon asynchrone (Main : requestAppOptions → signal).
@@ -861,6 +872,12 @@ Item {
             if (!w || ("" + (w["class"] || "")).toLowerCase() !== ("" + cls).toLowerCase()) return
             editor.menuOpts = data
             editor.menuOptsLoading = false
+            // Capture le descripteur répertoire dès son arrivée, tant que menuWinId est valide.
+            if (data && data.kind === "directory") {
+                editor.dirCommitWinId = editor.menuWinId
+                editor.dirCommitBase = data.base
+                editor.dirCommitFlag = data.flag
+            }
             editor._refreshMenuSel()
         }
     }
@@ -1539,7 +1556,7 @@ Item {
                         Layout.fillWidth: true
                         placeholderText: "/chemin/du/dossier"
                         text: editor.dirArg(editor.menuWinId)
-                        onEditingFinished: editor.applyDir(editor.menuWinId, text)
+                        onEditingFinished: editor.applyDir(text)
                     }
                 }
 
