@@ -1,0 +1,27 @@
+{
+    "ccw": {
+        "tooltip": "Hypr Layout — dispositions de fenêtres"
+    },
+    "launcher": {
+        "load": "Charger un layout (ajouter aux fenêtres actuelles)",
+        "loadDesc": "Charger ce layout",
+        "replace": "Charger un layout (tout remplacer)",
+        "replaceDesc": "Fermer toutes les fenêtres puis charger",
+        "save": "Sauver les fenêtres actuelles comme layout",
+        "saveDesc": "Enregistrer les fenêtres actuelles",
+        "saveAs": "Sauver sous",
+        "clean": "Fermer toutes les fenêtres"
+    },
+    "settings": {
+        "confirmClean": "Confirmer avant « Tout fermer »",
+        "confirmCleanDesc": "Demander une confirmation avant de fermer toutes les fenêtres.",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Afficher un toast au save / load / suppression.",
+        "overrides": "Commandes de lancement (classe → commande)",
+        "overridesDesc": "Surcharge la commande de lancement par classe de fenêtre. Corrige les applis ignorées au chargement quand leur commande réelle ne peut pas être relancée.",
+        "removeOverride": "Retirer",
+        "addOverride": "Ajouter",
+        "classPlaceholder": "classe de fenêtre",
+        "commandPlaceholder": "commande de lancement"
+    }
+}

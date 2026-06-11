@@ -1,0 +1,1170 @@
+#!/usr/bin/env python3
+"""hypr-layout — sauvegarde/restaure des dispositions de fenêtres Hyprland.
+
+Profils nommés (work, gaming, …) : quelles applis, sur quel workspace, quel écran,
+flottantes ou non (taille/position). Restaure via commande ou keybind.
+
+Usage:
+  hypr-layout save <nom>            # enregistre les fenêtres actuelles
+  hypr-layout load <nom> [--replace]# relance les applis (--replace = ferme tout d'abord)
+  hypr-layout clean                 # ferme toutes les fenêtres
+  hypr-layout delete <nom>          # supprime un profil
+  hypr-layout rename <ancien> <nouveau>  # renomme un profil
+  hypr-layout list                  # liste les profils (un nom par ligne)
+  hypr-layout info                  # JSON détaillé des profils (pour l'UI)
+  hypr-layout monitors              # JSON des écrans live (géométrie, pour l'éditeur)
+  hypr-layout edit-save <nom> <json># réécrit un profil depuis l'éditeur visuel
+  hypr-layout cmd-list              # JSON des surcharges classe→commande
+  hypr-layout cmd-set <classe> <commande>  # définit une surcharge
+  hypr-layout cmd-unset <classe>    # retire une surcharge
+  hypr-layout app-options <classe>  # JSON des options de lancement (profils/dossiers/cwd) pour l'éditeur
+  hypr-layout pick [load|save]      # menu rofi (load : choix ajouter/remplacer)
+
+La commande de lancement de chaque appli est résolue via une table classe→commande
+(les wrappers standards, fiables) ; sinon via la commande réelle du process.
+Surcharge possible : ~/.config/hypr/layouts/commands.json  (ex. {"steam":"steam"}).
+"""
+import json, os, re, shlex, subprocess, sys, time
+
+LAYDIR = os.path.expanduser("~/.config/hypr/layouts")
+
+# --- réglages du replay déterministe ---
+# Forcer orientation+côté du prochain split via `layoutmsg preselect` (structure de l'arbre).
+USE_PRESELECT = True
+# Filet de sécurité : vérifier la structure obtenue et corriger via togglesplit/swapsplit.
+ENFORCE_SPLIT = True
+# Les ratios sont réglés par `resizewindowpixel` (le dispatcher `splitratio` n'existe pas
+# sur Hyprland 0.55) : on redimensionne chaque fenêtre à sa taille cible issue de l'arbre.
+
+# Classe (minuscule) -> commande de lancement fiable (wrapper standard dans le PATH).
+DEFAULT_CMD = {
+    "google-chrome": "google-chrome-stable",
+    "chromium": "chromium",
+    "brave-browser": "brave",
+    "firefox": "firefox",
+    "zen": "zen-browser",
+    "code-insiders": "code-insiders",
+    "code": "code",
+    "code-url-handler": "code",
+    "code-oss": "code-oss",
+    "steam": "steam",
+    "kitty": "kitty",
+    "alacritty": "alacritty",
+    "org.kde.dolphin": "dolphin",
+    "org.kde.konsole": "konsole",
+    "discord": "discord",
+    "vesktop": "vesktop",
+    "spotify": "spotify",
+    "slack": "slack",
+    "dbeaver": "dbeaver",
+    "thunderbird": "thunderbird",
+}
+
+
+def hcjson(*args):
+    return json.loads(subprocess.check_output(["hyprctl", *args, "-j"], text=True))
+
+
+def proc_cmd(pid):
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            parts = [p.decode("utf-8", "replace") for p in f.read().split(b"\0") if p]
+        return parts or None
+    except Exception:
+        return None
+
+
+def _cmd_overrides():
+    m = dict(DEFAULT_CMD)
+    p = os.path.join(LAYDIR, "commands.json")
+    if os.path.exists(p):
+        try:
+            m.update({k.lower(): v for k, v in json.load(open(p)).items()})
+        except Exception:
+            pass
+    return m
+
+
+def resolve_cmd(win, overrides):
+    """Renvoie la commande de lancement (liste d'args) la plus fiable pour cette fenêtre."""
+    # Commande explicite épinglée par l'utilisateur (éditeur : profil/dossier/cwd) — priorité absolue.
+    user = win.get("cmd_user")
+    if user:
+        return user if isinstance(user, list) else shlex.split(str(user))
+    cls = (win.get("class") or "").lower()
+    if cls in overrides:
+        return shlex.split(overrides[cls])
+    raw = win.get("cmd") or []
+    # cmd réelle utilisable si chemin absolu/dans le PATH et pas un sous-process chromium
+    if raw and not raw[0].startswith("./") and not any(a.startswith("--type=") for a in raw):
+        return raw
+    # dernier recours : la classe comme commande
+    return [cls] if cls else None
+
+
+# ====================== pavage dwindle (port de Dwindle.js) ======================
+# Arbre binaire : feuille {"leaf": <id>} ; nœud {"split":"v"|"h","ratio":<0..1>,"a","b"}.
+# 'v' = côte à côte (a=gauche), 'h' = empilé (a=haut). Sert au save (inférer l'arbre depuis
+# la géométrie) et au load (rejouer l'arbre fidèlement). Voir Dwindle.js pour la version UI.
+
+def _clamp_ratio(r):
+    return max(0.05, min(0.95, r))
+
+
+def _rects(t, r, out=None):
+    """id -> {x,y,w,h} (sans gap)."""
+    if out is None:
+        out = {}
+    if not t:
+        return out
+    if "leaf" in t:
+        out[t["leaf"]] = {"x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"]}
+        return out
+    ratio = t["ratio"]
+    if t["split"] == "v":
+        aw = r["w"] * ratio
+        _rects(t["a"], {"x": r["x"], "y": r["y"], "w": aw, "h": r["h"]}, out)
+        _rects(t["b"], {"x": r["x"] + aw, "y": r["y"], "w": r["w"] - aw, "h": r["h"]}, out)
+    else:
+        ah = r["h"] * ratio
+        _rects(t["a"], {"x": r["x"], "y": r["y"], "w": r["w"], "h": ah}, out)
+        _rects(t["b"], {"x": r["x"], "y": r["y"] + ah, "w": r["w"], "h": r["h"] - ah}, out)
+    return out
+
+
+def _tiles(t, rect, gap=0):
+    raw = _rects(t, rect, {})
+    out = []
+    for id_, rr in raw.items():
+        out.append({"id": id_, "x": rr["x"] + gap, "y": rr["y"] + gap,
+                    "w": max(1, rr["w"] - 2 * gap), "h": max(1, rr["h"] - 2 * gap)})
+    return out
+
+
+def _leaves(t, out=None):
+    """feuilles dans l'ordre de l'arbre (gauche→droite, haut→bas)."""
+    if out is None:
+        out = []
+    if not t:
+        return out
+    if "leaf" in t:
+        out.append(t["leaf"])
+        return out
+    _leaves(t["a"], out)
+    _leaves(t["b"], out)
+    return out
+
+
+def _remove_leaf(t, leaf_id):
+    """Retire une feuille ; le parent est remplacé par le frère (repli)."""
+    if not t:
+        return None
+    if "leaf" in t:
+        return None if t["leaf"] == leaf_id else t
+    a, b = t["a"], t["b"]
+    if "leaf" in a and a["leaf"] == leaf_id:
+        return b
+    if "leaf" in b and b["leaf"] == leaf_id:
+        return a
+    return {"split": t["split"], "ratio": t["ratio"],
+            "a": _remove_leaf(a, leaf_id), "b": _remove_leaf(b, leaf_id)}
+
+
+def from_centers(items, region):
+    """Reconstruit l'arbre depuis la géométrie réelle (at/size) — port de Dwindle.js:104-148.
+    Coupe selon l'axe le plus dispersé, au plus grand écart entre centres ; ratio = coupe réelle."""
+    if not items:
+        return None
+    if len(items) == 1:
+        return {"leaf": items[0]["id"]}
+    cx = [it["x"] + it["w"] / 2 for it in items]
+    cy = [it["y"] + it["h"] / 2 for it in items]
+    vert = (max(cx) - min(cx)) >= (max(cy) - min(cy))
+
+    def center(it):
+        return (it["x"] + it["w"] / 2) if vert else (it["y"] + it["h"] / 2)
+
+    sit = sorted(items, key=center)
+    split_idx, best_gap = 1, -1.0
+    for k in range(1, len(sit)):
+        gap = center(sit[k]) - center(sit[k - 1])
+        if gap > best_gap:
+            best_gap, split_idx = gap, k
+    A, B = sit[:split_idx], sit[split_idx:]
+    if vert:
+        cut = (max(it["x"] + it["w"] for it in A) + min(it["x"] for it in B)) / 2
+        ratio = _clamp_ratio((cut - region["x"]) / (region["w"] or 1))
+        return {"split": "v", "ratio": ratio,
+                "a": from_centers(A, {"x": region["x"], "y": region["y"],
+                                      "w": region["w"] * ratio, "h": region["h"]}),
+                "b": from_centers(B, {"x": region["x"] + region["w"] * ratio, "y": region["y"],
+                                      "w": region["w"] * (1 - ratio), "h": region["h"]})}
+    cut = (max(it["y"] + it["h"] for it in A) + min(it["y"] for it in B)) / 2
+    ratio = _clamp_ratio((cut - region["y"]) / (region["h"] or 1))
+    return {"split": "h", "ratio": ratio,
+            "a": from_centers(A, {"x": region["x"], "y": region["y"],
+                                  "w": region["w"], "h": region["h"] * ratio}),
+            "b": from_centers(B, {"x": region["x"], "y": region["y"] + region["h"] * ratio,
+                                  "w": region["w"], "h": region["h"] * (1 - ratio)})}
+
+
+# ====================== persistance des layouts (v1 liste / v2 objet) ======================
+
+def _is_tiled(w):
+    return (not w.get("special") and not w.get("floating")
+            and w.get("monitor") and w.get("at") and w.get("size"))
+
+
+def _group_key(w):
+    return f"{w.get('monitor')}|{w.get('workspace')}"
+
+
+def assign_lids(wins):
+    """Identifiant stable de feuille `_lid = <classe>#<k>` (k = rang par classe en ordre spatial)."""
+    tiled = sorted((w for w in wins if _is_tiled(w)),
+                   key=lambda w: (w["workspace"], w["at"][0], w["at"][1]))
+    counter = {}
+    for w in tiled:
+        cls = (w.get("class") or "").lower()
+        k = counter.get(cls, 0)
+        counter[cls] = k + 1
+        w["_lid"] = f"{cls}#{k}"
+
+
+def build_trees(wins):
+    """Renvoie (trees, regions) par groupe monitor|workspace depuis la géométrie tuilée."""
+    groups = {}
+    for w in wins:
+        if _is_tiled(w):
+            groups.setdefault(_group_key(w), []).append(w)
+    trees, regions = {}, {}
+    for key, group in groups.items():
+        x0 = min(w["at"][0] for w in group)
+        y0 = min(w["at"][1] for w in group)
+        x1 = max(w["at"][0] + w["size"][0] for w in group)
+        y1 = max(w["at"][1] + w["size"][1] for w in group)
+        region = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+        items = [{"id": w["_lid"], "x": w["at"][0], "y": w["at"][1],
+                  "w": w["size"][0], "h": w["size"][1]} for w in group]
+        trees[key] = from_centers(items, region)
+        regions[key] = region
+    return trees, regions
+
+
+def read_layout(path):
+    """Normalise le fichier en {version, windows, trees, region}. Liste nue = v1 (sans arbre)."""
+    raw = json.load(open(path))
+    if isinstance(raw, list):
+        return {"version": 1, "windows": raw, "trees": {}, "region": {}}
+    if isinstance(raw, dict):
+        return {"version": raw.get("version", 2),
+                "windows": raw.get("windows", []),
+                "trees": raw.get("trees", {}) or {},
+                "region": raw.get("region", {}) or {}}
+    return {"version": 1, "windows": [], "trees": {}, "region": {}}
+
+
+def write_layout(name, wins, trees, regions):
+    os.makedirs(LAYDIR, exist_ok=True)
+    data = {"version": 2, "windows": wins, "trees": trees, "region": regions}
+    with open(os.path.join(LAYDIR, f"{name}.json"), "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def save(name):
+    mons = {m["id"]: m["name"] for m in hcjson("monitors")}
+    wins = []
+    for c in hcjson("clients"):
+        if not c.get("mapped"):
+            continue
+        wso = c.get("workspace") or {}
+        ws = wso.get("id")
+        wsname = wso.get("name") or ""
+        if ws is None:
+            continue
+        special = wsname.startswith("special")
+        if not special and ws < 1:        # ignore les pseudo-workspaces (hors "special")
+            continue
+        cmd = proc_cmd(c.get("pid"))
+        win = {
+            "class": c.get("class"),
+            "title": c.get("title"),
+            "cmd": cmd,
+            "workspace": ws,
+            "workspace_name": wsname,
+            "special": special,
+            "monitor": mons.get(c.get("monitor")),
+            "floating": bool(c.get("floating")),
+            "at": c.get("at"),
+            "size": c.get("size"),
+        }
+        # VSCode : mémoriser le dossier ouvert pour le rouvrir tel quel (best-effort).
+        try:
+            vcmd = _vscode_detect(win)
+            if vcmd:
+                win["cmd_user"] = vcmd
+        except Exception:
+            pass
+        wins.append(win)
+    assign_lids(wins)
+    trees, regions = build_trees(wins)
+    write_layout(name, wins, trees, regions)
+    print(f"✓ Layout '{name}' enregistré ({len(wins)} fenêtres) → {LAYDIR}/{name}.json")
+
+
+def clean():
+    """Ferme toutes les fenêtres (les apps qui vont en tray, slack/notion…, y retournent)."""
+    for c in hcjson("clients"):
+        if c.get("address"):
+            subprocess.run(["hyprctl", "dispatch", "closewindow", f"address:{c['address']}"],
+                           stdout=subprocess.DEVNULL)
+    for _ in range(25):                  # attendre la fermeture (max ~5 s)
+        if not hcjson("clients"):
+            break
+        time.sleep(0.2)
+
+
+# ====================== primitives hyprctl pour le replay ======================
+
+def _dispatch(*args):
+    subprocess.run(["hyprctl", "dispatch", *args], stdout=subprocess.DEVNULL)
+
+
+def _clients():
+    try:
+        return hcjson("clients")
+    except Exception:
+        return []
+
+
+def _addrs():
+    return {c.get("address") for c in _clients()}
+
+
+def _client_by_addr(addr):
+    for c in _clients():
+        if c.get("address") == addr:
+            return c
+    return None
+
+
+def _norm_class(s):
+    return (s or "").lower()
+
+
+def _inorder_first(node):
+    """Feuille la plus à gauche/haut (le `seed` qui reste focus après un split)."""
+    while node and "leaf" not in node:
+        node = node["a"]
+    return node["leaf"] if node else None
+
+
+def _wait_stable(addr, timeout=1.5):
+    """Attend que la taille de la fenêtre se stabilise (2 lectures égales) — évite d'agir
+    pendant l'animation d'ouverture."""
+    t0, last = time.time(), None
+    while time.time() - t0 < timeout:
+        c = _client_by_addr(addr)
+        if c:
+            sz = tuple(c.get("size") or [])
+            if sz and sz == last:
+                return
+            last = sz
+        time.sleep(0.12)
+
+
+def _wait_focus(addr, timeout=1.0):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            aw = hcjson("activewindow")
+        except Exception:
+            aw = {}
+        if aw.get("address") == addr:
+            return
+        time.sleep(0.06)
+
+
+def _wait_new_tiled(before, slot_class, ws, timeout=8.0):
+    """Polle l'apparition d'UNE nouvelle fenêtre tuilée mappée sur `ws`. Préfère la classe
+    attendue ; à défaut (après timeout) prend toute nouvelle fenêtre tuilée (bind faible)."""
+    target = _norm_class(slot_class)
+    t0, fallback = time.time(), None
+    while time.time() - t0 < timeout:
+        cand = []
+        for c in _clients():
+            a = c.get("address")
+            if not a or a in before or not c.get("mapped") or c.get("floating"):
+                continue
+            wso = c.get("workspace") or {}
+            if wso.get("id") != ws:
+                continue
+            cand.append(c)
+        for c in cand:
+            if target in (_norm_class(c.get("class")), _norm_class(c.get("initialClass"))):
+                _wait_stable(c["address"])
+                return c["address"]
+        if cand and fallback is None:
+            fallback = cand[0]["address"]
+        time.sleep(0.08)
+    if fallback:
+        _wait_stable(fallback)
+    return fallback
+
+
+def _enforce_split(addr_a, addr_b, split):
+    """Filet de sécurité : vérifie l'orientation/côté obtenus entre `a` et `b` et corrige via
+    togglesplit/swapsplit si `preselect` n'a pas donné le résultat voulu. No-op si déjà correct."""
+    def centers():
+        ca, cb = _client_by_addr(addr_a), _client_by_addr(addr_b)
+        if not ca or not cb:
+            return None
+        ax, ay = ca["at"]; aw, ah = ca["size"]
+        bx, by = cb["at"]; bw, bh = cb["size"]
+        return (ax + aw / 2, ay + ah / 2, bx + bw / 2, by + bh / 2)
+
+    c = centers()
+    if not c:
+        return
+    acx, acy, bcx, bcy = c
+    actual = "v" if abs(bcx - acx) >= abs(bcy - acy) else "h"
+    if actual != split:
+        _dispatch("focuswindow", f"address:{addr_b}")
+        _wait_focus(addr_b)
+        _dispatch("layoutmsg", "togglesplit")
+        time.sleep(0.12)
+        c = centers()
+        if c:
+            acx, acy, bcx, bcy = c
+    # côté : `a` doit être à gauche (v) / en haut (h) de `b`
+    wrong_side = (acx > bcx) if split == "v" else (acy > bcy)
+    if wrong_side:
+        _dispatch("focuswindow", f"address:{addr_b}")
+        _wait_focus(addr_b)
+        _dispatch("layoutmsg", "swapsplit")
+        time.sleep(0.12)
+
+
+def _apply_geometry(tree, slot_addr):
+    """Règle tous les ratios après coup : redimensionne chaque fenêtre à sa taille cible issue
+    de l'arbre via `resizewindowpixel exact` (fiable ; le dispatcher `splitratio` n'existe pas
+    sur 0.55). 2 passes pour faire converger les dividers imbriqués."""
+    # Élague l'arbre aux feuilles réellement ouvertes (apps repliées) -> cibles cohérentes.
+    pruned = tree
+    for lid in _leaves(tree):
+        if lid not in slot_addr:
+            pruned = _remove_leaf(pruned, lid)
+    if not pruned:
+        return
+    rects = []
+    for lid in _leaves(pruned):
+        c = _client_by_addr(slot_addr[lid])
+        if c and c.get("at") and c.get("size"):
+            rects.append((c["at"], c["size"]))
+    if not rects:
+        return
+    # Région réelle = bbox des fenêtres tuilées placées (exclut barres/gaps_out).
+    x0 = min(a[0] for a, _ in rects); y0 = min(a[1] for a, _ in rects)
+    x1 = max(a[0] + s[0] for a, s in rects); y1 = max(a[1] + s[1] for a, s in rects)
+    region = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+    targets = {t["id"]: t for t in _tiles(pruned, region)}
+    order = _leaves(pruned)
+    for _ in range(2):
+        for lid in order:
+            tg = targets.get(lid)
+            if tg:
+                _dispatch("resizewindowpixel",
+                          f"exact {int(tg['w'])} {int(tg['h'])},address:{slot_addr[lid]}")
+                time.sleep(0.04)
+
+
+# ====================== replay déterministe d'un arbre ======================
+
+def replay_tiled(tree, tiled_wins, overrides, state):
+    """Reproduit fidèlement l'arbre dwindle : insertion séquentielle contrôlée (focus +
+    preselect + splitratio), chaque fenêtre liée à sa feuille (_lid) à son apparition."""
+    by_lid = {w.get("_lid"): w for w in tiled_wins if w.get("_lid")}
+    slot_addr = {}
+
+    def launch_bind(lid):
+        # Renvoie l'adresse de la fenêtre ouverte, ou None (commande introuvable / fenêtre
+        # qui n'apparaît pas). Le comptage `skipped` est fait par l'appelant (open_seed).
+        w = by_lid.get(lid)
+        if not w:
+            return None
+        cmd = resolve_cmd(w, overrides)
+        if not cmd:
+            return None
+        cmdstr = " ".join(shlex.quote(a) for a in cmd)
+        before = _addrs()
+        _dispatch("exec", cmdstr)
+        state["launched"] += 1
+        addr = _wait_new_tiled(before, w.get("class"), w["workspace"])
+        if addr:
+            slot_addr[lid] = addr
+        return addr
+
+    def open_seed(subtree, direction=None, anchor=None):
+        """Lance, en ordre, les feuilles de `subtree` jusqu'à ce qu'UNE s'ouvre ; replie (prune)
+        celles qui échouent -> leur espace est libéré et redistribué. `direction`/`anchor` :
+        si fournis, refocus l'ancre + pose le preselect avant chaque tentative (placement
+        relatif au frère `a`). Retourne (addr, subtree_élagué) ; (None, None) si aucune ne démarre.
+        Garantit qu'un échec (app mono-instance, etc.) n'interrompt pas le reste du layout."""
+        n = subtree
+        while n:
+            s = _inorder_first(n)
+            if direction and USE_PRESELECT:
+                if anchor:
+                    _dispatch("focuswindow", f"address:{anchor}")
+                _dispatch("layoutmsg", f"preselect {direction}")
+            addr = launch_bind(s)
+            if addr is not None:
+                return addr, n
+            state["skipped"].append((by_lid.get(s) or {}).get("class"))
+            n = _remove_leaf(n, s)                   # libère l'espace de la feuille échouée
+        return None, None
+
+    # graine du groupe : on saute les fenêtres qui ne s'ouvrent pas (au lieu d'abandonner tout
+    # le workspace) tant qu'il en reste une qui démarre.
+    addr_seed, tree = open_seed(tree)
+    if addr_seed is None:
+        return slot_addr
+    _dispatch("focuswindow", f"address:{addr_seed}")
+
+    def realize(node):
+        if "leaf" in node:
+            return
+        addr_a = slot_addr.get(_inorder_first(node["a"]))   # déjà ouvert & focus (invariant)
+        direction = "r" if node["split"] == "v" else "d"    # b = enfant b -> droite/bas
+        addr_b, node_b = open_seed(node["b"], direction, addr_a)
+        if addr_b is None:
+            # tout le sous-arbre b a échoué : `a` occupe toute la région du nœud (espace libéré).
+            if addr_a:
+                _dispatch("focuswindow", f"address:{addr_a}")
+                realize(node["a"])
+            return
+        if ENFORCE_SPLIT and addr_a:
+            _enforce_split(addr_a, addr_b, node["split"])
+        if addr_a:                                   # construit `a` puis `b` (ratios réglés après)
+            _dispatch("focuswindow", f"address:{addr_a}")
+            realize(node["a"])
+        _dispatch("focuswindow", f"address:{addr_b}")
+        realize(node_b)                              # sous-arbre b élagué de ses feuilles échouées
+
+    realize(tree)
+    _apply_geometry(tree, slot_addr)                 # règle tous les ratios en une passe finale
+    return slot_addr
+
+
+# ====================== chemins de repli (v1) et flottantes/spéciales ======================
+
+def _legacy_place(tiled, overrides, state):
+    """Ancien comportement best-effort (layouts v1 sans arbre) : ordre spatial + resize."""
+    tiled = sorted(tiled, key=lambda w: ((w.get("at") or [0, 0])[0], (w.get("at") or [0, 0])[1]))
+    placed = []
+    for w in tiled:
+        cmd = resolve_cmd(w, overrides)
+        if not cmd:
+            state["skipped"].append(w.get("class"))
+            continue
+        cmdstr = " ".join(shlex.quote(a) for a in cmd)
+        before = _addrs()
+        _dispatch("exec", cmdstr)
+        state["launched"] += 1
+        addr, t0 = None, time.time()
+        while time.time() - t0 < 6:
+            new = _addrs() - before
+            if new:
+                addr = next(iter(new))
+                break
+            time.sleep(0.2)
+        if addr:
+            placed.append((w, addr))
+        time.sleep(0.2)
+    for w, addr in placed:
+        if w.get("size"):
+            _dispatch("resizewindowpixel",
+                      f"exact {int(w['size'][0])} {int(w['size'][1])},address:{addr}")
+            time.sleep(0.05)
+
+
+def place_floats(floats, overrides, state):
+    for w in floats:
+        cmd = resolve_cmd(w, overrides)
+        if not cmd:
+            state["skipped"].append(w.get("class"))
+            continue
+        cmdstr = " ".join(shlex.quote(a) for a in cmd)
+        rules = ["float"]
+        if w.get("size"):
+            rules.append(f"size {int(w['size'][0])} {int(w['size'][1])}")
+        if w.get("at"):
+            rules.append(f"move {int(w['at'][0])} {int(w['at'][1])}")
+        prefix = f"[{';'.join(rules)}] "
+        before = _addrs()
+        _dispatch("exec", f"{prefix}{cmdstr}")
+        state["launched"] += 1
+        addr, t0 = None, time.time()
+        while time.time() - t0 < 6:
+            new = _addrs() - before
+            if new:
+                addr = next(iter(new))
+                break
+            time.sleep(0.2)
+        if addr and w.get("size"):
+            _dispatch("resizewindowpixel",
+                      f"exact {int(w['size'][0])} {int(w['size'][1])},address:{addr}")
+            time.sleep(0.05)
+            if w.get("at"):
+                _dispatch("movewindowpixel",
+                          f"exact {int(w['at'][0])} {int(w['at'][1])},address:{addr}")
+                time.sleep(0.05)
+
+
+def _launch_special(w, overrides, state):
+    cmd = resolve_cmd(w, overrides)
+    if not cmd:
+        state["skipped"].append(w.get("class"))
+        return
+    cmdstr = " ".join(shlex.quote(a) for a in cmd)
+    # Le special par défaut est rapporté "special:special" mais sa CIBLE de dispatch est
+    # "special" (sinon Hyprland crée un 2e special distinct !).
+    wsname = w.get("workspace_name") or ""
+    target = wsname if (wsname and wsname != "special:special") else "special"
+    cls = re.escape(w.get("class") or "")
+    subprocess.run(["hyprctl", "keyword", "windowrule",
+                    f"workspace {target} silent, match:class ^({cls})$"],
+                   stdout=subprocess.DEVNULL)
+    _dispatch("exec", cmdstr)
+    state["launched"] += 1
+    time.sleep(0.4)
+
+
+def load(name, replace=False):
+    path = os.path.join(LAYDIR, f"{name}.json")
+    if not os.path.exists(path):
+        sys.exit(f"Layout '{name}' introuvable ({path})")
+    if replace:
+        clean()
+    lay = read_layout(path)
+    wins = [w for w in lay["windows"] if w.get("class")]
+    trees = lay["trees"]
+    overrides = _cmd_overrides()
+    state = {"launched": 0, "skipped": []}
+
+    # 1) Spéciaux d'abord (windowrule runtime, robuste au timing, indépendant du pavage).
+    for w in wins:
+        if w.get("special"):
+            try:
+                _launch_special(w, overrides, state)
+            except Exception:
+                state["skipped"].append(w.get("class"))   # un échec n'interrompt pas le reste
+
+    # 2) Groupes normaux par monitor|workspace, traités un par un (focus du ws avant ouverture).
+    groups = {}
+    for w in wins:
+        if w.get("special"):
+            continue
+        key = f"{w.get('monitor')}|{w.get('workspace')}"
+        g = groups.setdefault(key, {"tiled": [], "floats": [], "ws": w["workspace"]})
+        (g["floats"] if w.get("floating") else g["tiled"]).append(w)
+
+    for key in sorted(groups, key=lambda k: groups[k]["ws"]):
+        g = groups[key]
+        # un échec sur un groupe (ou une de ses fenêtres) ne doit pas empêcher les autres
+        # workspaces/écrans de se charger.
+        try:
+            _dispatch("workspace", str(g["ws"]))
+            tree = trees.get(key)
+            if tree and g["tiled"]:
+                replay_tiled(tree, g["tiled"], overrides, state)   # déterministe (v2)
+            elif g["tiled"]:
+                _legacy_place(g["tiled"], overrides, state)        # repli best-effort (v1)
+            place_floats(g["floats"], overrides, state)
+        except Exception:
+            for w in g["tiled"] + g["floats"]:
+                state["skipped"].append(w.get("class"))
+
+    # revenir sur le 1er workspace normal du layout
+    if groups:
+        _dispatch("workspace", str(min(g["ws"] for g in groups.values())))
+
+    msg = f"✓ Layout '{name}' chargé ({state['launched']} fenêtres)"
+    if state["skipped"]:
+        msg += (f" — ignorées : {', '.join(filter(None, state['skipped']))}"
+                " (ajoute-les dans commands.json)")
+    print(msg)
+
+
+def list_layouts():
+    if not os.path.isdir(LAYDIR):
+        return []
+    return sorted(f[:-5] for f in os.listdir(LAYDIR)
+                  if f.endswith(".json") and f != "commands.json")
+
+
+def info():
+    """Imprime un JSON décrivant chaque layout (fenêtres + résumé) pour l'UI."""
+    out = []
+    for name in list_layouts():
+        path = os.path.join(LAYDIR, f"{name}.json")
+        try:
+            lay = read_layout(path)
+            wins = lay["windows"]
+            mtime = os.path.getmtime(path)
+        except Exception:
+            continue
+        if not isinstance(wins, list):
+            continue
+        workspaces, monitors = set(), set()
+        for w in wins:
+            ws = w.get("workspace_name") or w.get("workspace")
+            if ws is not None:
+                workspaces.add(ws)
+            if w.get("monitor"):
+                monitors.add(w.get("monitor"))
+        out.append({
+            "name": name,
+            "mtime": mtime,
+            "version": lay["version"],
+            "windows": wins,
+            "trees": lay["trees"],
+            "region": lay["region"],
+            "summary": {
+                "windows": len(wins),
+                "workspaces": len(workspaces),
+                "monitors": len(monitors),
+            },
+        })
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def monitors():
+    """Imprime la géométrie des écrans live (pour dessiner les cadres de l'éditeur)."""
+    out = []
+    for m in hcjson("monitors"):
+        out.append({
+            "name": m.get("name"),
+            "x": m.get("x"),
+            "y": m.get("y"),
+            "width": m.get("width"),
+            "height": m.get("height"),
+            "scale": m.get("scale"),
+        })
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def workspace_rules():
+    """Imprime le bind workspace→écran : { "<wsId>": "<monitorName>", ... }.
+    Sert à l'éditeur pour choisir le prochain numéro de ws en respectant la config.
+    On combine les ws actuellement existants (placement réel) puis les règles
+    explicites de bind (`workspacerules`, prioritaires car = intention de config)."""
+    out = {}
+    # ws existants (id numérique -> écran courant)
+    for w in hcjson("workspaces"):
+        wid, mon = w.get("id"), w.get("monitor")
+        if isinstance(wid, int) and wid > 0 and mon:
+            out[str(wid)] = mon
+    # règles de bind explicites (prioritaires) : workspaceString numérique uniquement
+    for r in hcjson("workspacerules"):
+        ws, mon = r.get("workspaceString"), r.get("monitor")
+        if not mon:
+            continue
+        try:
+            wid = int(ws)
+        except (TypeError, ValueError):
+            continue
+        if wid > 0:
+            out[str(wid)] = mon
+    print(json.dumps(out, ensure_ascii=False))
+
+
+# Champs d'une fenêtre conservés à la réécriture (même schéma que save() + _lid stable).
+_WIN_FIELDS = ("class", "title", "cmd", "cmd_user", "workspace", "workspace_name",
+               "special", "monitor", "floating", "at", "size", "_lid")
+
+
+def edit_save(name, payload):
+    """Réécrit <name>.json depuis l'éditeur visuel.
+    Payload v2 = objet {windows, trees, region} (arbre autoritaire). Une liste nue est
+    encore acceptée (compat) : l'arbre est alors ré-inféré depuis la géométrie."""
+    try:
+        data = json.loads(payload)
+    except Exception as e:
+        sys.exit(f"JSON invalide : {e}")
+    if isinstance(data, list):
+        wins, trees, regions = data, None, None
+    elif isinstance(data, dict):
+        wins = data.get("windows", [])
+        trees = data.get("trees")
+        regions = data.get("region")
+    else:
+        sys.exit("attendu : une liste de fenêtres ou un objet {windows, trees, region}")
+    if not isinstance(wins, list):
+        sys.exit("attendu : une liste de fenêtres")
+    # On ne garde que les champs connus (ignore tout extra ajouté par l'UI, ex. _id).
+    clean_wins = [{k: w[k] for k in _WIN_FIELDS if k in w}
+                  for w in wins if isinstance(w, dict)]
+    # Sans arbre fourni (ancienne UI), on le (re)dérive de la géométrie pour rester en v2.
+    if trees is None:
+        assign_lids(clean_wins)
+        trees, regions = build_trees(clean_wins)
+    write_layout(name, clean_wins, trees or {}, regions or {})
+    print(f"✓ Layout '{name}' modifié ({len(clean_wins)} fenêtres)")
+
+
+def rename(old, neo):
+    src = os.path.join(LAYDIR, f"{old}.json")
+    dst = os.path.join(LAYDIR, f"{neo}.json")
+    if not os.path.exists(src):
+        sys.exit(f"introuvable : {old}")
+    if os.path.exists(dst):
+        sys.exit(f"existe déjà : {neo}")
+    os.rename(src, dst)
+    print(f"✓ renommé : {old} → {neo}")
+
+
+def _commands_path():
+    return os.path.join(LAYDIR, "commands.json")
+
+
+def _read_commands():
+    p = _commands_path()
+    if os.path.exists(p):
+        try:
+            return json.load(open(p))
+        except Exception:
+            pass
+    return {}
+
+
+def cmd_list():
+    print(json.dumps(_read_commands(), ensure_ascii=False))
+
+
+def cmd_set(cls, command):
+    m = _read_commands()
+    m[cls] = command
+    os.makedirs(LAYDIR, exist_ok=True)
+    with open(_commands_path(), "w") as f:
+        json.dump(m, f, indent=2, ensure_ascii=False)
+    print(f"✓ commande définie : {cls} → {command}")
+
+
+def cmd_unset(cls):
+    m = _read_commands()
+    if cls in m:
+        del m[cls]
+        with open(_commands_path(), "w") as f:
+            json.dump(m, f, indent=2, ensure_ascii=False)
+        print(f"✓ commande retirée : {cls}")
+    else:
+        sys.exit(f"introuvable : {cls}")
+
+
+# ====================== options de lancement par app (profils / dossiers / cwd) ======================
+# `app-options <classe>` renvoie un descripteur consommé par l'éditeur :
+#   {kind:"profiles"|"folders"|"directory"|"none", label, items:[{label,cmd}], base, flag}
+# L'éditeur pose `cmd_user = item.cmd` (profiles/folders) ou `base+[flag,chemin]` (directory).
+
+# Classe (minuscule) -> sous-dossier de ~/.config contenant "Local State" (familles Chromium).
+CHROME_CONFIG = {
+    "google-chrome": "google-chrome", "google-chrome-stable": "google-chrome",
+    "chromium": "chromium", "chromium-browser": "chromium",
+    "brave-browser": "BraveSoftware/Brave-Browser", "brave": "BraveSoftware/Brave-Browser",
+    "vivaldi-stable": "vivaldi", "vivaldi": "vivaldi",
+    "microsoft-edge": "microsoft-edge", "microsoft-edge-stable": "microsoft-edge",
+}
+# Classe -> profiles.ini candidats (familles Firefox/Zen ; chemins variables selon la config XDG).
+_FF = ["~/.mozilla/firefox/profiles.ini", "~/.config/mozilla/firefox/profiles.ini"]
+_ZEN = ["~/.zen/profiles.ini", "~/.config/zen/profiles.ini"]
+FIREFOX_INI = {
+    "firefox": _FF, "firefox-esr": _FF,
+    "zen": _ZEN, "zen-browser": _ZEN, "zen-alpha": _ZEN, "zen-twilight": _ZEN,
+}
+VSCODE_CLASSES = {"code", "code-insiders", "code-oss", "code-url-handler", "vscodium", "codium"}
+# Classe -> flag de répertoire de travail (terminaux).
+TERM_FLAG = {
+    "kitty": "--directory", "alacritty": "--working-directory",
+    "org.kde.konsole": "--workdir", "konsole": "--workdir",
+    "foot": "--working-directory", "ghostty": "--working-directory",
+}
+
+
+def _base_cmd(cls, overrides):
+    """Commande de lancement « nue » de la classe (wrapper standard), à enrichir d'un flag."""
+    if cls in overrides:
+        return shlex.split(overrides[cls])
+    return [cls]
+
+
+def _chrome_profiles(cls, overrides):
+    path = os.path.expanduser(f"~/.config/{CHROME_CONFIG[cls]}/Local State")
+    try:
+        cache = json.load(open(path)).get("profile", {}).get("info_cache", {})
+    except Exception:
+        cache = {}
+    base = _base_cmd(cls, overrides)
+
+    def sortkey(d):
+        return (0, "") if d == "Default" else (1, d.lower())
+
+    items = [{"label": (cache[d].get("name") or d), "sub": d,
+              "cmd": base + [f"--profile-directory={d}"]}
+             for d in sorted(cache.keys(), key=sortkey)]
+    return {"kind": "profiles", "label": "Profil", "items": items}
+
+
+def _firefox_profiles(cls, overrides):
+    import configparser
+    names = []
+    for cand in FIREFOX_INI[cls]:
+        p = os.path.expanduser(cand)
+        if not os.path.exists(p):
+            continue
+        try:
+            cp = configparser.ConfigParser()
+            cp.read(p)
+            for s in cp.sections():
+                if s.lower().startswith("profile") and cp.has_option(s, "Name"):
+                    names.append(cp.get(s, "Name"))
+        except Exception:
+            pass
+        break
+    base = _base_cmd(cls, overrides)
+    items = [{"label": n, "sub": n, "cmd": base + ["-P", n, "--no-remote"]} for n in names]
+    return {"kind": "profiles", "label": "Profil", "items": items}
+
+
+def _vscode_dir(cls):
+    dirs = {"code": "Code", "code-url-handler": "Code", "code-insiders": "Code - Insiders",
+            "code-oss": "Code - OSS", "vscodium": "VSCodium", "codium": "VSCodium"}
+    return os.path.expanduser(f"~/.config/{dirs.get(cls, 'Code')}")
+
+
+def _vscode_storage_paths(cls):
+    d = _vscode_dir(cls)
+    return [os.path.join(d, "User", "globalStorage", "storage.json"),
+            os.path.join(d, "storage.json")]
+
+
+def _uri_to_path(u):
+    if isinstance(u, str) and u.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+        return unquote(urlparse(u).path) or None
+    return None
+
+
+def _collect_folders(obj, out):
+    """Parcourt récursivement le JSON du storage et collecte les URIs file:// de dossiers ouverts."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            kl = k.lower()
+            if isinstance(v, str) and ("folder" in kl or "uri" in kl or "configpath" in kl):
+                p = _uri_to_path(v)
+                if p:
+                    out.append(p)
+            else:
+                _collect_folders(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_folders(v, out)
+
+
+def _vscode_open_folders(cls):
+    """Dossiers actuellement/dernièrement ouverts (depuis storage.json) — pour l'auto-détection."""
+    found = []
+    for p in _vscode_storage_paths(cls):
+        if os.path.exists(p):
+            try:
+                _collect_folders(json.load(open(p)), found)
+            except Exception:
+                pass
+    seen, out = set(), []
+    for f in found:
+        if f and f not in seen and os.path.isdir(f):
+            seen.add(f)
+            out.append(f)
+    return out
+
+
+def _short_label(p):
+    """Libellé court et distinctif : <parent>/<base> (désambiguë deux projets de même nom)."""
+    p = p.rstrip("/")
+    parent = os.path.basename(os.path.dirname(p))
+    base = os.path.basename(p) or p
+    return f"{parent}/{base}" if parent else base
+
+
+# Nombre max de cibles VSCode proposées dans le menu (les plus récentes d'abord).
+_VSCODE_MAX = 12
+
+
+def _vscode_all_targets(cls):
+    """Toutes les cibles `code <arg>` déjà ouvertes : dossiers ouverts (priorité) puis l'historique
+    de `workspaceStorage/*/workspace.json` (dossiers + .code-workspace nommés) trié par récence.
+    state.vscdb n'expose pas toujours la liste des récents → on s'appuie sur workspaceStorage."""
+    ordered = list(_vscode_open_folders(cls))     # ouverts d'abord
+    entries = []
+    wsdir = os.path.join(_vscode_dir(cls), "User", "workspaceStorage")
+    if os.path.isdir(wsdir):
+        for d in os.listdir(wsdir):
+            wj = os.path.join(wsdir, d, "workspace.json")
+            if not os.path.exists(wj):
+                continue
+            try:
+                obj = json.load(open(wj))
+                mt = os.path.getmtime(os.path.join(wsdir, d))
+            except Exception:
+                continue
+            p = _uri_to_path(obj.get("folder") or obj.get("workspace"))
+            if not p:
+                continue
+            # workspaces générés (multi-root sans nom, sous le dossier appli) : ignorés
+            if obj.get("workspace") and "/Workspaces/" in p:
+                continue
+            entries.append((mt, p))
+    entries.sort(reverse=True)                     # plus récent d'abord
+    seen, out = set(), []
+    for p in ordered + [pp for _, pp in entries]:
+        if p in seen:
+            continue
+        seen.add(p)
+        if os.path.isdir(p) or (os.path.isfile(p) and p.endswith(".code-workspace")):
+            out.append(p)
+        if len(out) >= _VSCODE_MAX:
+            break
+    return out
+
+
+def _vscode_options(cls, overrides):
+    base = _base_cmd(cls, overrides)
+    items = [{"label": _short_label(f), "sub": f, "cmd": base + [f]}
+             for f in _vscode_all_targets(cls)]
+    return {"kind": "folders", "label": "Dossier / workspace", "items": items}
+
+
+def _terminal_options(cls, overrides):
+    return {"kind": "directory", "label": "Répertoire",
+            "base": _base_cmd(cls, overrides), "flag": TERM_FLAG[cls]}
+
+
+def _vscode_detect(win):
+    """Best-effort : déduit le dossier ouvert d'une fenêtre VSCode via son titre (basename ↔ storage).
+    Renvoie une commande `cmd_user` ou None (aucun match / ambigu → on n'écrit rien)."""
+    cls = (win.get("class") or "").lower()
+    if cls not in VSCODE_CLASSES:
+        return None
+    title = win.get("title") or ""
+    matches = [f for f in _vscode_open_folders(cls)
+               if (os.path.basename(f.rstrip("/")) and os.path.basename(f.rstrip("/")) in title)]
+    uniq = list(dict.fromkeys(matches))
+    if len(uniq) == 1:
+        return _base_cmd(cls, _cmd_overrides()) + [uniq[0]]
+    return None
+
+
+def app_options(cls):
+    clsl = (cls or "").lower()
+    overrides = _cmd_overrides()
+    out = None
+    if clsl in CHROME_CONFIG:
+        out = _chrome_profiles(clsl, overrides)
+    elif clsl in FIREFOX_INI:
+        out = _firefox_profiles(clsl, overrides)
+    elif clsl in VSCODE_CLASSES:
+        out = _vscode_options(clsl, overrides)
+    elif clsl in TERM_FLAG:
+        out = _terminal_options(clsl, overrides)
+    print(json.dumps(out or {"kind": "none"}, ensure_ascii=False))
+
+
+def _rofi(items, prompt):
+    try:
+        return subprocess.run(["rofi", "-dmenu", "-p", prompt], input="\n".join(items),
+                              text=True, capture_output=True).stdout.strip()
+    except FileNotFoundError:
+        sys.exit("rofi requis pour 'pick'")
+
+
+def pick(action="load"):
+    names = list_layouts()
+    if not names:
+        sys.exit("Aucun layout enregistré.")
+    if action == "save":
+        sel = _rofi(names, "Sauver sous")
+        if sel:
+            save(sel)
+        return
+    # load : on choisit le layout, puis le mode (ajouter / remplacer)
+    sel = _rofi(names, "Charger layout")
+    if not sel:
+        return
+    mode = _rofi(["➕  Ajouter (garder les fenêtres actuelles)",
+                  "🔄  Remplacer (fermer tout d'abord)"], f"{sel}  →")
+    if not mode:
+        return
+    load(sel, replace=mode.startswith("🔄"))
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    cmd, rest = sys.argv[1], sys.argv[2:]
+    if cmd == "save":
+        save(rest[0] if rest else input("nom du layout: "))
+    elif cmd == "load":
+        names = [a for a in rest if not a.startswith("-")]
+        if not names:
+            sys.exit("usage: hypr-layout load <nom> [--replace]")
+        load(names[0], replace=("--replace" in rest or "-r" in rest))
+    elif cmd == "clean":
+        clean()
+        print("✓ fenêtres fermées")
+    elif cmd == "delete":
+        if not rest:
+            sys.exit("usage: hypr-layout delete <nom>")
+        p = os.path.join(LAYDIR, f"{rest[0]}.json")
+        if os.path.exists(p):
+            os.remove(p)
+            print(f"✓ supprimé : {rest[0]}")
+        else:
+            sys.exit(f"introuvable : {rest[0]}")
+    elif cmd == "list":
+        print("\n".join(list_layouts()) or "(aucun)")
+    elif cmd == "info":
+        info()
+    elif cmd == "monitors":
+        monitors()
+    elif cmd == "ws-rules":
+        workspace_rules()
+    elif cmd == "edit-save":
+        if len(rest) < 2:
+            sys.exit("usage: hypr-layout edit-save <nom> <json>")
+        edit_save(rest[0], rest[1])
+    elif cmd == "rename":
+        if len(rest) < 2:
+            sys.exit("usage: hypr-layout rename <ancien> <nouveau>")
+        rename(rest[0], rest[1])
+    elif cmd == "cmd-list":
+        cmd_list()
+    elif cmd == "cmd-set":
+        if len(rest) < 2:
+            sys.exit("usage: hypr-layout cmd-set <classe> <commande>")
+        cmd_set(rest[0], rest[1])
+    elif cmd == "cmd-unset":
+        if not rest:
+            sys.exit("usage: hypr-layout cmd-unset <classe>")
+        cmd_unset(rest[0])
+    elif cmd == "app-options":
+        if not rest:
+            sys.exit("usage: hypr-layout app-options <classe>")
+        app_options(rest[0])
+    elif cmd == "pick":
+        pick(rest[0] if rest else "load")
+    else:
+        sys.exit(f"commande inconnue: {cmd}")
+
+
+if __name__ == "__main__":
+    main()

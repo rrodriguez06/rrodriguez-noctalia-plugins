@@ -1,0 +1,27 @@
+{
+  "id": "hypr-layout",
+  "name": "Hypr Layout",
+  "version": "0.3.2",
+  "minNoctaliaVersion": "4.5.0",
+  "author": "rrodriguez06",
+  "license": "MIT",
+  "description": "Sauvegarde et restaure des dispositions de fenetres Hyprland (via le CLI hypr-layout).",
+  "tags": ["Bar", "Panel", "Launcher", "Utility"],
+  "entryPoints": {
+    "main": "Main.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml",
+    "settings": "Settings.qml",
+    "launcherProvider": "LauncherProvider.qml",
+    "controlCenterWidget": "ControlCenterWidget.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {
+      "confirmClean": true,
+      "showToasts": true
+    }
+  }
+}

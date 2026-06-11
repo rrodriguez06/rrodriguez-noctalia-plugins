@@ -1,0 +1,27 @@
+{
+    "ccw": {
+        "tooltip": "Hypr Layout — window layouts"
+    },
+    "launcher": {
+        "load": "Load a layout (add to current windows)",
+        "loadDesc": "Load this layout",
+        "replace": "Load a layout (replace everything)",
+        "replaceDesc": "Close all windows then load",
+        "save": "Save current windows as a layout",
+        "saveDesc": "Save the current windows",
+        "saveAs": "Save as",
+        "clean": "Close all windows"
+    },
+    "settings": {
+        "confirmClean": "Confirm before \"Close all\"",
+        "confirmCleanDesc": "Ask for confirmation before closing every window.",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Show a toast on save / load / delete.",
+        "overrides": "Launch commands (class → command)",
+        "overridesDesc": "Override the launch command per window class. Fixes apps that are skipped when loading because their real command can't be relaunched.",
+        "removeOverride": "Remove",
+        "addOverride": "Add",
+        "classPlaceholder": "window class",
+        "commandPlaceholder": "launch command"
+    }
+}
