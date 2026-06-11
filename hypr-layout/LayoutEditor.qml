@@ -365,12 +365,15 @@ Item {
         bx0 = minx; by0 = miny
         var bw = maxx - minx, bh = maxy - miny
         var pad = Style.marginM
+        // marge haute supplémentaire : les en-têtes (nom + onglets ws + « + ») sont posés
+        // au-dessus des cadres -> on leur réserve leur hauteur pour ne pas les rogner
+        var topPad = pad + 22 * Style.uiScaleRatio + Style.marginXXS
         var availW = canvasArea.width - 2 * pad
-        var availH = canvasArea.height - 2 * pad
+        var availH = canvasArea.height - topPad - pad
         var s = Math.min(availW / bw, availH / bh)
         sc = s
         offX = pad + (availW - bw * s) / 2
-        offY = pad + (availH - bh * s) / 2
+        offY = topPad + (availH - bh * s) / 2
         // origine de canvasArea dans le repère de l'éditeur (overlay) — gère les marges du ColumnLayout
         var o = canvasArea.mapToItem(editor, 0, 0)
         caOX = o.x; caOY = o.y
@@ -1268,12 +1271,13 @@ Item {
                 required property var modelData
                 readonly property string frameName: modelData.name
                 x: modelData.x + Style.marginXS
-                y: modelData.y + Style.marginXS
+                // placé juste AU-DESSUS du cadre (et non dedans) : n'empiète plus sur le contenu
+                // du ws ni sur les poignées de split, donc plus de vol de clic du bouton « + »
+                y: modelData.y - height - Style.marginXXS
                 spacing: Style.marginXXS
-                // au-dessus des poignées de split (z:30) : onglets ws / bouton « + » prioritaires
-                // sur un divider qui passerait juste en dessous (sinon le drag de split vole le clic)
                 z: 40
                 Behavior on x { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
 
                 Rectangle {
                     height: 22 * Style.uiScaleRatio

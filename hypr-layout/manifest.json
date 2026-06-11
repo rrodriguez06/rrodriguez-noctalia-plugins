@@ -1,7 +1,7 @@
 {
   "id": "hypr-layout",
   "name": "Hypr Layout",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "minNoctaliaVersion": "4.5.0",
   "author": "rrodriguez06",
   "license": "MIT",
