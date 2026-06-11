@@ -872,33 +872,39 @@ Item {
         anchors.margins: Style.marginM
         spacing: Style.marginS
 
-        // --- barre d'outils ---
-        RowLayout {
+        // --- barre d'outils (bloc à fond, cohérent avec le drawer/scratchpad) ---
+        NBox {
             Layout.fillWidth: true
-            spacing: Style.marginS
-            NIconButton {
-                icon: "arrow-left"
-                tooltipText: "Annuler"
-                onClicked: editor.cancelled()
-            }
-            NIconButton {
-                icon: editor.drawerOpen ? "layout-sidebar-left-collapse" : "layout-sidebar-left-expand"
-                tooltipText: editor.drawerOpen ? "Masquer les applications" : "Afficher les applications"
-                onClicked: editor.drawerOpen = !editor.drawerOpen
-            }
-            NText {
-                Layout.fillWidth: true
-                text: "Éditer : " + editor.layoutName
-                pointSize: Style.fontSizeL
-                elide: Text.ElideRight
-            }
-            NButton {
-                text: "Sauver"
-                icon: "device-floppy"
-                onClicked: {
-                    editor.commitTiledGeometry()   // fige les proportions tuilées (at/size) pour fidélité
-                    editor.mainInstance.saveEditedLayout(editor.layoutName, editor.buildV2Payload())
-                    editor.saved()
+            Layout.preferredHeight: toolbarRow.implicitHeight + Style.marginS * 2
+            RowLayout {
+                id: toolbarRow
+                anchors.fill: parent
+                anchors.margins: Style.marginS
+                spacing: Style.marginS
+                NIconButton {
+                    icon: "arrow-left"
+                    tooltipText: "Annuler"
+                    onClicked: editor.cancelled()
+                }
+                NIconButton {
+                    icon: editor.drawerOpen ? "layout-sidebar-left-collapse" : "layout-sidebar-left-expand"
+                    tooltipText: editor.drawerOpen ? "Masquer les applications" : "Afficher les applications"
+                    onClicked: editor.drawerOpen = !editor.drawerOpen
+                }
+                NText {
+                    Layout.fillWidth: true
+                    text: "Éditer : " + editor.layoutName
+                    pointSize: Style.fontSizeL
+                    elide: Text.ElideRight
+                }
+                NButton {
+                    text: "Sauver"
+                    icon: "device-floppy"
+                    onClicked: {
+                        editor.commitTiledGeometry()   // fige les proportions tuilées (at/size) pour fidélité
+                        editor.mainInstance.saveEditedLayout(editor.layoutName, editor.buildV2Payload())
+                        editor.saved()
+                    }
                 }
             }
         }
