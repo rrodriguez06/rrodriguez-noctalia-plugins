@@ -661,7 +661,10 @@ def _launch_special(w, overrides, state, reuse=None):
     target = wsname if (wsname and wsname != "special:special") else "special"
     addr = (reuse or {}).get(w.get("_mid"))
     if addr:                                  # merge : déplacer la fenêtre existante vers le special
-        _dispatch("movetoworkspacesilent", f"{target},address:{addr}")
+        # Pour le dispatcher, le special se désigne par "special:<nom>" (le bare "special"
+        # serait pris pour un workspace normal nommé "special").
+        move_target = wsname if wsname.startswith("special:") else "special:special"
+        _dispatch("movetoworkspacesilent", f"{move_target},address:{addr}")
         return
     cmd = resolve_cmd(w, overrides)
     if not cmd:
@@ -683,14 +686,15 @@ def _launch_special(w, overrides, state, reuse=None):
 MERGE_HOLD = "special:hyprlayout_hold"
 
 
-def _arg_val(args, *flags):
-    """Valeur d'un flag dans une liste d'args : `--x val`, `--x=val` ou `-P val`."""
-    for i, a in enumerate(args):
-        for f in flags:
-            if a == f and i + 1 < len(args):
-                return args[i + 1]
-            if a.startswith(f + "="):
-                return a.split("=", 1)[1]
+def _flag_val(blob, *flags):
+    """Valeur d'un flag dans une commande aplatie (string) : `--x val`, `--x=val`, `-P val`.
+    Robuste au cas où /proc/cmdline renvoie toute la commande en UN seul token (Chromium,
+    Electron) : on cherche sur la chaîne entière, et la valeur peut contenir des espaces
+    (ex. profil Chrome « Profile 1 ») jusqu'au prochain ` -flag` ou la fin."""
+    for f in flags:
+        m = re.search(re.escape(f) + r"[=\s]+(.+?)(?=\s+-|\s*$)", blob)
+        if m:
+            return m.group(1).strip()
     return None
 
 
@@ -700,23 +704,24 @@ def window_identity(cls, args, title=None):
     profil Firefox, dossier VSCode, cwd terminal). Vide => fenêtres interchangeables (classe seule).
     Règles symétriques des deux côtés (mêmes args/title -> même identité)."""
     c = (cls or "").lower()
-    args = args or []
+    blob = " ".join(args or [])
     disc = ""
     if c in CHROME_CONFIG:
-        disc = _arg_val(args, "--profile-directory") or "Default"
+        disc = _flag_val(blob, "--profile-directory") or "Default"
     elif c in FIREFOX_INI:
-        disc = _arg_val(args, "-P", "--profile", "-p") or ""
+        disc = _flag_val(blob, "-P", "--profile", "-p") or ""
     elif c in VSCODE_CLASSES:
-        # dossier ouvert : dernier arg ressemblant à un chemin, sinon heuristique via le titre.
-        folder = next((a for a in reversed(args)
-                       if a and not a.startswith("-") and ("/" in a or a.startswith("~"))), None)
+        # dossier ouvert : token chemin du blob (en ignorant l'exécutable), sinon heuristique titre.
+        paths = re.findall(r"(/[^\s]+|~/[^\s]+)", blob)
+        cand = [p for p in paths if os.path.basename(p.rstrip("/")) != c]
+        folder = (cand or paths or [None])[-1]
         if not folder and title is not None:
             vc = _vscode_detect({"class": cls, "title": title})
             if vc:
                 folder = vc[-1]
         disc = os.path.basename((folder or "").rstrip("/")) if folder else ""
     elif c in TERM_FLAG:
-        disc = _arg_val(args, TERM_FLAG[c]) or ""
+        disc = _flag_val(blob, TERM_FLAG[c]) or ""
     return (c, disc)
 
 
@@ -847,15 +852,14 @@ def load(name, mode="add"):
             for w in g["tiled"] + g["floats"]:
                 state["skipped"].append(w.get("class"))
 
-    # Filet : ramener toute réutilisée restée dans le tampon (groupe en échec) sur le 1er ws.
+    # Filet : ramener sur le 1er ws toute réutilisée restée bloquée dans le tampon (groupe en
+    # échec). On cible UNIQUEMENT le workspace tampon (pas les vrais special:* du layout).
     if mode == "merge" and groups:
         first_ws = min(g["ws"] for g in groups.values())
-        for w in wins:
-            addr = reuse.get(w.get("_mid"))
-            if addr and any(c.get("address") == addr
-                            and (c.get("workspace") or {}).get("name", "").startswith("special")
-                            for c in _clients()):
-                _dispatch("movetoworkspacesilent", f"{first_ws},address:{addr}")
+        held = {c.get("address") for c in _clients()
+                if (c.get("workspace") or {}).get("name") == MERGE_HOLD}
+        for addr in (reuse[mid] for mid in reuse if reuse[mid] in held):
+            _dispatch("movetoworkspacesilent", f"{first_ws},address:{addr}")
 
     # revenir sur le 1er workspace normal du layout
     if groups:

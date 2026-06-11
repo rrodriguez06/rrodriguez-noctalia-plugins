@@ -14,7 +14,7 @@ Item {
     readonly property var geometryPlaceholder: panelContainer
     readonly property bool allowAttach: true
     // En mode édition, le panneau grandit modérément (mais reste docké à la barre).
-    property real contentPreferredWidth: (editingLayoutName !== "" ? 780 : 460) * Style.uiScaleRatio
+    property real contentPreferredWidth: (editingLayoutName !== "" ? 780 : 540) * Style.uiScaleRatio
     property real contentPreferredHeight: (editingLayoutName !== "" ? 640 : 600) * Style.uiScaleRatio
     anchors.fill: parent
 
