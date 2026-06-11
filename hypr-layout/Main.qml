@@ -207,12 +207,15 @@ Item {
     }
 
     // --- actions ---
-    function loadLayout(name, replace) {
+    // mode : "add" (défaut) | "replace" | "merge"
+    function loadLayout(name, mode) {
         if (!name)
             return
         const extra = ["load", name]
-        if (replace)
+        if (mode === "replace")
             extra.push("--replace")
+        else if (mode === "merge")
+            extra.push("--merge")
         root.dispatch(extra, "Chargement de « " + name + " »…", "✓ Layout chargé")
     }
 
@@ -264,8 +267,9 @@ Item {
                 root.pluginApi.withCurrentScreen(s => root.pluginApi.togglePanel(s))
         }
         function refresh() { root.refresh() }
-        function load(name: string) { root.loadLayout(name, false) }
-        function loadReplace(name: string) { root.loadLayout(name, true) }
+        function load(name: string) { root.loadLayout(name, "add") }
+        function loadReplace(name: string) { root.loadLayout(name, "replace") }
+        function loadMerge(name: string) { root.loadLayout(name, "merge") }
         function save(name: string) { root.saveLayout(name) }
         function rename(oldName: string, newName: string) { root.renameLayout(oldName, newName) }
         function clean() { root.cleanAll() }

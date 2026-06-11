@@ -6,7 +6,11 @@ flottantes ou non (taille/position). Restaure via commande ou keybind.
 
 Usage:
   hypr-layout save <nom>            # enregistre les fenêtres actuelles
-  hypr-layout load <nom> [--replace]# relance les applis (--replace = ferme tout d'abord)
+  hypr-layout load <nom> [--replace|--merge]  # relance les applis
+                                    #   (défaut = ajoute aux fenêtres actuelles)
+                                    #   --replace = ferme tout d'abord
+                                    #   --merge   = réutilise/déplace les fenêtres correspondantes
+                                    #               et ferme les inutiles (changement de layout)
   hypr-layout clean                 # ferme toutes les fenêtres
   hypr-layout delete <nom>          # supprime un profil
   hypr-layout rename <ancien> <nouveau>  # renomme un profil
@@ -480,18 +484,27 @@ def _apply_geometry(tree, slot_addr):
 
 # ====================== replay déterministe d'un arbre ======================
 
-def replay_tiled(tree, tiled_wins, overrides, state):
+def replay_tiled(tree, tiled_wins, overrides, state, reuse=None):
     """Reproduit fidèlement l'arbre dwindle : insertion séquentielle contrôlée (focus +
-    preselect + splitratio), chaque fenêtre liée à sa feuille (_lid) à son apparition."""
+    preselect + splitratio), chaque fenêtre liée à sa feuille (_lid) à son apparition.
+    `reuse` (merge) : { _mid -> address } -> au lieu de lancer, on déplace la fenêtre existante
+    (détachée dans le tampon) sur le ws courant, où dwindle l'insère selon le preselect actif."""
+    reuse = reuse or {}
     by_lid = {w.get("_lid"): w for w in tiled_wins if w.get("_lid")}
     slot_addr = {}
 
     def launch_bind(lid):
-        # Renvoie l'adresse de la fenêtre ouverte, ou None (commande introuvable / fenêtre
-        # qui n'apparaît pas). Le comptage `skipped` est fait par l'appelant (open_seed).
+        # Renvoie l'adresse de la fenêtre ouverte/réutilisée, ou None (commande introuvable /
+        # fenêtre qui n'apparaît pas). Le comptage `skipped` est fait par l'appelant (open_seed).
         w = by_lid.get(lid)
         if not w:
             return None
+        addr = reuse.get(w.get("_mid"))
+        if addr:                              # merge : déplacer la fenêtre existante au preselect
+            _dispatch("movetoworkspacesilent", f"{w['workspace']},address:{addr}")
+            _wait_stable(addr)                # ancre encore focus -> dwindle splitte selon preselect
+            slot_addr[lid] = addr
+            return addr
         cmd = resolve_cmd(w, overrides)
         if not cmd:
             return None
@@ -558,11 +571,18 @@ def replay_tiled(tree, tiled_wins, overrides, state):
 
 # ====================== chemins de repli (v1) et flottantes/spéciales ======================
 
-def _legacy_place(tiled, overrides, state):
+def _legacy_place(tiled, overrides, state, reuse=None):
     """Ancien comportement best-effort (layouts v1 sans arbre) : ordre spatial + resize."""
+    reuse = reuse or {}
     tiled = sorted(tiled, key=lambda w: ((w.get("at") or [0, 0])[0], (w.get("at") or [0, 0])[1]))
     placed = []
     for w in tiled:
+        addr = reuse.get(w.get("_mid"))
+        if addr:                              # merge : réutiliser la fenêtre existante
+            _dispatch("movetoworkspacesilent", f"{w['workspace']},address:{addr}")
+            _wait_stable(addr)
+            placed.append((w, addr))
+            continue
         cmd = resolve_cmd(w, overrides)
         if not cmd:
             state["skipped"].append(w.get("class"))
@@ -588,8 +608,21 @@ def _legacy_place(tiled, overrides, state):
             time.sleep(0.05)
 
 
-def place_floats(floats, overrides, state):
+def place_floats(floats, overrides, state, reuse=None):
+    reuse = reuse or {}
     for w in floats:
+        addr = reuse.get(w.get("_mid"))
+        if addr:                              # merge : déplacer + repositionner la fenêtre existante
+            _dispatch("movetoworkspacesilent", f"{w['workspace']},address:{addr}")
+            if w.get("size"):
+                _dispatch("resizewindowpixel",
+                          f"exact {int(w['size'][0])} {int(w['size'][1])},address:{addr}")
+                time.sleep(0.05)
+            if w.get("at"):
+                _dispatch("movewindowpixel",
+                          f"exact {int(w['at'][0])} {int(w['at'][1])},address:{addr}")
+                time.sleep(0.05)
+            continue
         cmd = resolve_cmd(w, overrides)
         if not cmd:
             state["skipped"].append(w.get("class"))
@@ -621,16 +654,20 @@ def place_floats(floats, overrides, state):
                 time.sleep(0.05)
 
 
-def _launch_special(w, overrides, state):
+def _launch_special(w, overrides, state, reuse=None):
+    # Le special par défaut est rapporté "special:special" mais sa CIBLE de dispatch est
+    # "special" (sinon Hyprland crée un 2e special distinct !).
+    wsname = w.get("workspace_name") or ""
+    target = wsname if (wsname and wsname != "special:special") else "special"
+    addr = (reuse or {}).get(w.get("_mid"))
+    if addr:                                  # merge : déplacer la fenêtre existante vers le special
+        _dispatch("movetoworkspacesilent", f"{target},address:{addr}")
+        return
     cmd = resolve_cmd(w, overrides)
     if not cmd:
         state["skipped"].append(w.get("class"))
         return
     cmdstr = " ".join(shlex.quote(a) for a in cmd)
-    # Le special par défaut est rapporté "special:special" mais sa CIBLE de dispatch est
-    # "special" (sinon Hyprland crée un 2e special distinct !).
-    wsname = w.get("workspace_name") or ""
-    target = wsname if (wsname and wsname != "special:special") else "special"
     cls = re.escape(w.get("class") or "")
     subprocess.run(["hyprctl", "keyword", "windowrule",
                     f"workspace {target} silent, match:class ^({cls})$"],
@@ -640,23 +677,148 @@ def _launch_special(w, overrides, state):
     time.sleep(0.4)
 
 
-def load(name, replace=False):
+# ====================== mode « merge » : réutiliser les fenêtres déjà ouvertes ======================
+# Workspace spécial tampon où l'on détache les fenêtres réutilisées avant de rejouer l'arbre
+# (vide les workspaces cibles -> reconstruction propre, sans collision avec le pavage courant).
+MERGE_HOLD = "special:hyprlayout_hold"
+
+
+def _arg_val(args, *flags):
+    """Valeur d'un flag dans une liste d'args : `--x val`, `--x=val` ou `-P val`."""
+    for i, a in enumerate(args):
+        for f in flags:
+            if a == f and i + 1 < len(args):
+                return args[i + 1]
+            if a.startswith(f + "="):
+                return a.split("=", 1)[1]
+    return None
+
+
+def window_identity(cls, args, title=None):
+    """Identité (classe normalisée, discriminateur de profil) servant à apparier une fenêtre
+    live et une entrée de layout. Le discriminateur dépend de la famille d'app (profil Chrome,
+    profil Firefox, dossier VSCode, cwd terminal). Vide => fenêtres interchangeables (classe seule).
+    Règles symétriques des deux côtés (mêmes args/title -> même identité)."""
+    c = (cls or "").lower()
+    args = args or []
+    disc = ""
+    if c in CHROME_CONFIG:
+        disc = _arg_val(args, "--profile-directory") or "Default"
+    elif c in FIREFOX_INI:
+        disc = _arg_val(args, "-P", "--profile", "-p") or ""
+    elif c in VSCODE_CLASSES:
+        # dossier ouvert : dernier arg ressemblant à un chemin, sinon heuristique via le titre.
+        folder = next((a for a in reversed(args)
+                       if a and not a.startswith("-") and ("/" in a or a.startswith("~"))), None)
+        if not folder and title is not None:
+            vc = _vscode_detect({"class": cls, "title": title})
+            if vc:
+                folder = vc[-1]
+        disc = os.path.basename((folder or "").rstrip("/")) if folder else ""
+    elif c in TERM_FLAG:
+        disc = _arg_val(args, TERM_FLAG[c]) or ""
+    return (c, disc)
+
+
+def _plan_merge(wins, overrides):
+    """Décide quoi réutiliser / fermer pour le mode merge.
+    Retourne (reuse, to_launch, to_close) :
+      - reuse    : { _mid -> address } fenêtres live à déplacer au lieu de relancer ;
+      - to_launch: [_mid] entrées sans correspondance (lancées comme en mode « add ») ;
+      - to_close : [address] fenêtres live non réclamées sur un workspace défini par le layout."""
+    clients = [c for c in _clients() if c.get("mapped") and c.get("address")]
+    live = []  # [ident, client, claimed]
+    for c in clients:
+        ident = window_identity(c.get("class"), proc_cmd(c.get("pid")) or [], c.get("title"))
+        live.append([ident, c, False])
+
+    # Workspaces ciblés par le layout (on n'y ferme que là).
+    layout_ws_ids, layout_has_special = set(), False
+    for w in wins:
+        if w.get("special"):
+            layout_has_special = True
+        else:
+            layout_ws_ids.add(w.get("workspace"))
+
+    def claim(ident, exact):
+        for e in live:
+            if e[2]:
+                continue
+            if exact:
+                if e[0] == ident:
+                    e[2] = True
+                    return e[1]["address"]
+            elif e[0][0] == ident[0] and e[0][1] == "":   # classe seule, discriminateur vide
+                e[2] = True
+                return e[1]["address"]
+        return None
+
+    reuse, to_launch, pending = {}, [], []
+    # 1) appariement exact (classe, discriminateur)
+    for w in wins:
+        ident = window_identity(w.get("class"), resolve_cmd(w, overrides) or [], w.get("title"))
+        addr = claim(ident, exact=True)
+        if addr:
+            reuse[w["_mid"]] = addr
+        else:
+            pending.append((w["_mid"], ident))
+    # 2) repli classe seule pour les entrées interchangeables (discriminateur vide)
+    for mid, ident in pending:
+        addr = claim(ident, exact=False) if ident[1] == "" else None
+        if addr:
+            reuse[mid] = addr
+        else:
+            to_launch.append(mid)
+
+    # 3) fenêtres live non réclamées, sur un workspace du layout -> à fermer
+    to_close = []
+    for ident, c, claimed in live:
+        if claimed:
+            continue
+        wso = c.get("workspace") or {}
+        is_special = (wso.get("name") or "").startswith("special")
+        if (layout_has_special if is_special else (wso.get("id") in layout_ws_ids)):
+            to_close.append(c["address"])
+    return reuse, to_launch, to_close
+
+
+def load(name, mode="add"):
+    """mode ∈ {"add","replace","merge"}. add = ajoute aux fenêtres actuelles ; replace = ferme
+    tout d'abord ; merge = réutilise/déplace les fenêtres correspondantes, ferme les inutiles."""
     path = os.path.join(LAYDIR, f"{name}.json")
     if not os.path.exists(path):
         sys.exit(f"Layout '{name}' introuvable ({path})")
-    if replace:
+    if mode == "replace":
         clean()
     lay = read_layout(path)
     wins = [w for w in lay["windows"] if w.get("class")]
+    for i, w in enumerate(wins):           # identifiant stable par entrée (clé de reuse)
+        w["_mid"] = i
     trees = lay["trees"]
     overrides = _cmd_overrides()
     state = {"launched": 0, "skipped": []}
+
+    reuse = {}
+    if mode == "merge":
+        reuse, _to_launch, to_close = _plan_merge(wins, overrides)
+        # Détacher les réutilisées vers le tampon (vide les ws cibles, casse le pavage courant).
+        for addr in reuse.values():
+            _dispatch("movetoworkspacesilent", f"{MERGE_HOLD},address:{addr}")
+        # Fermer les fenêtres inutiles, puis attendre leur disparition.
+        for addr in to_close:
+            _dispatch("closewindow", f"address:{addr}")
+        if to_close:
+            gone = set(to_close)
+            for _ in range(15):
+                if gone.isdisjoint(_addrs()):
+                    break
+                time.sleep(0.2)
 
     # 1) Spéciaux d'abord (windowrule runtime, robuste au timing, indépendant du pavage).
     for w in wins:
         if w.get("special"):
             try:
-                _launch_special(w, overrides, state)
+                _launch_special(w, overrides, state, reuse)
             except Exception:
                 state["skipped"].append(w.get("class"))   # un échec n'interrompt pas le reste
 
@@ -677,19 +839,30 @@ def load(name, replace=False):
             _dispatch("workspace", str(g["ws"]))
             tree = trees.get(key)
             if tree and g["tiled"]:
-                replay_tiled(tree, g["tiled"], overrides, state)   # déterministe (v2)
+                replay_tiled(tree, g["tiled"], overrides, state, reuse)   # déterministe (v2)
             elif g["tiled"]:
-                _legacy_place(g["tiled"], overrides, state)        # repli best-effort (v1)
-            place_floats(g["floats"], overrides, state)
+                _legacy_place(g["tiled"], overrides, state, reuse)        # repli best-effort (v1)
+            place_floats(g["floats"], overrides, state, reuse)
         except Exception:
             for w in g["tiled"] + g["floats"]:
                 state["skipped"].append(w.get("class"))
+
+    # Filet : ramener toute réutilisée restée dans le tampon (groupe en échec) sur le 1er ws.
+    if mode == "merge" and groups:
+        first_ws = min(g["ws"] for g in groups.values())
+        for w in wins:
+            addr = reuse.get(w.get("_mid"))
+            if addr and any(c.get("address") == addr
+                            and (c.get("workspace") or {}).get("name", "").startswith("special")
+                            for c in _clients()):
+                _dispatch("movetoworkspacesilent", f"{first_ws},address:{addr}")
 
     # revenir sur le 1er workspace normal du layout
     if groups:
         _dispatch("workspace", str(min(g["ws"] for g in groups.values())))
 
-    msg = f"✓ Layout '{name}' chargé ({state['launched']} fenêtres)"
+    verb = {"merge": "fusionné", "replace": "remplacé"}.get(mode, "chargé")
+    msg = f"✓ Layout '{name}' {verb} ({state['launched']} fenêtres)"
     if state["skipped"]:
         msg += (f" — ignorées : {', '.join(filter(None, state['skipped']))}"
                 " (ajoute-les dans commands.json)")
@@ -1096,15 +1269,17 @@ def pick(action="load"):
         if sel:
             save(sel)
         return
-    # load : on choisit le layout, puis le mode (ajouter / remplacer)
+    # load : on choisit le layout, puis le mode (ajouter / remplacer / fusionner)
     sel = _rofi(names, "Charger layout")
     if not sel:
         return
-    mode = _rofi(["➕  Ajouter (garder les fenêtres actuelles)",
-                  "🔄  Remplacer (fermer tout d'abord)"], f"{sel}  →")
-    if not mode:
+    choice = _rofi(["➕  Ajouter (garder les fenêtres actuelles)",
+                    "🔄  Remplacer (fermer tout d'abord)",
+                    "⇄  Fusionner (réutiliser les fenêtres, fermer les inutiles)"], f"{sel}  →")
+    if not choice:
         return
-    load(sel, replace=mode.startswith("🔄"))
+    mode = "replace" if choice.startswith("🔄") else ("merge" if choice.startswith("⇄") else "add")
+    load(sel, mode)
 
 
 def main():
@@ -1116,8 +1291,14 @@ def main():
     elif cmd == "load":
         names = [a for a in rest if not a.startswith("-")]
         if not names:
-            sys.exit("usage: hypr-layout load <nom> [--replace]")
-        load(names[0], replace=("--replace" in rest or "-r" in rest))
+            sys.exit("usage: hypr-layout load <nom> [--replace|--merge]")
+        if "--merge" in rest or "-m" in rest:
+            mode = "merge"
+        elif "--replace" in rest or "-r" in rest:
+            mode = "replace"
+        else:
+            mode = "add"
+        load(names[0], mode)
     elif cmd == "clean":
         clean()
         print("✓ fenêtres fermées")

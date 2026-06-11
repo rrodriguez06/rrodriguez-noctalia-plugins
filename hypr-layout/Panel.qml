@@ -28,8 +28,19 @@ Item {
     readonly property color appIconTint: Color.resolveColorKey(pluginApi?.pluginSettings?.appIconColor ?? "primary")
     readonly property bool closePanelOnAction: pluginApi?.pluginSettings?.closePanelOnAction ?? false
     readonly property bool confirmDelete: pluginApi?.pluginSettings?.confirmDelete ?? true
-    // Mode du bouton de chargement primaire ("Charger") : "add" ou "replace".
+    // Mode de chargement par défaut : "add" | "replace" | "merge".
     readonly property string defaultLoadMode: pluginApi?.pluginSettings?.defaultLoadMode ?? "add"
+    // Ordre d'affichage des boutons de chargement : défaut en tête, puis les deux autres.
+    readonly property var loadModeOrder: {
+        var all = ["add", "replace", "merge"]
+        return [defaultLoadMode].concat(all.filter(m => m !== defaultLoadMode))
+    }
+    function loadModeIcon(m) {
+        return m === "replace" ? "replace" : (m === "merge" ? "arrows-exchange" : "download")
+    }
+    function loadModeLabel(m) {
+        return m === "replace" ? "Remplacer" : (m === "merge" ? "Fusionner" : "Charger")
+    }
 
     // Ferme le panneau après une action mutante si l'option est activée.
     function _afterAction() {
@@ -207,10 +218,11 @@ Item {
                                 onClicked: card.expanded = !card.expanded
                             }
 
-                            // mode normal : nom + badge + actions
+                            // mode normal : nom (largeur fixe, crop) + badge + actions
                             NText {
                                 visible: !card.editing
-                                Layout.fillWidth: true
+                                Layout.preferredWidth: 110 * Style.uiScaleRatio
+                                Layout.maximumWidth: 110 * Style.uiScaleRatio
                                 text: card.name
                                 pointSize: Style.fontSizeL
                                 elide: Text.ElideRight
@@ -229,25 +241,27 @@ Item {
                                     color: Color.mOnSurfaceVariant
                                 }
                             }
-                            // Bouton primaire : suit le mode de chargement par défaut.
-                            NButton {
+                            // Pousse les actions vers la droite, laissant une largeur fixe au titre.
+                            Item {
                                 visible: !card.editing
-                                text: root.defaultLoadMode === "replace" ? "Remplacer" : "Charger"
-                                fontSize: Style.fontSizeS
-                                onClicked: {
-                                    root.mainInstance.loadLayout(card.name, root.defaultLoadMode === "replace")
-                                    root._afterAction()
-                                }
+                                Layout.fillWidth: true
                             }
-                            // Bouton secondaire : action de chargement opposée.
-                            NButton {
-                                visible: !card.editing
-                                text: root.defaultLoadMode === "replace" ? "Charger" : "Remplacer"
-                                outlined: true
-                                fontSize: Style.fontSizeS
-                                onClicked: {
-                                    root.mainInstance.loadLayout(card.name, root.defaultLoadMode !== "replace")
-                                    root._afterAction()
+                            // Boutons de chargement : mode par défaut en tête (accentué),
+                            // puis les deux autres modes (atténués).
+                            Repeater {
+                                model: root.loadModeOrder
+                                delegate: NIconButton {
+                                    required property string modelData
+                                    required property int index
+                                    visible: !card.editing
+                                    icon: root.loadModeIcon(modelData)
+                                    tooltipText: root.loadModeLabel(modelData)
+                                    colorFg: index === 0 ? Color.mPrimary : Color.mOnSurfaceVariant
+                                    colorFgHover: Color.mPrimary
+                                    onClicked: {
+                                        root.mainInstance.loadLayout(card.name, modelData)
+                                        root._afterAction()
+                                    }
                                 }
                             }
                             NIconButton {

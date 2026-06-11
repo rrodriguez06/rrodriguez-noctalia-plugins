@@ -127,12 +127,17 @@ ColumnLayout {
                 checked: root.closePanelOnAction
                 onToggled: (v) => { root.closePanelOnAction = v; saveSettings() }
             }
-            NToggle {
+            NComboBox {
                 Layout.fillWidth: true
                 label: pluginApi?.tr("settings.defaultLoadMode")
                 description: pluginApi?.tr("settings.defaultLoadModeDesc")
-                checked: root.defaultLoadMode === "replace"
-                onToggled: (v) => { root.defaultLoadMode = v ? "replace" : "add"; saveSettings() }
+                model: [
+                    { "key": "add", "name": pluginApi?.tr("settings.loadModeAdd") },
+                    { "key": "replace", "name": pluginApi?.tr("settings.loadModeReplace") },
+                    { "key": "merge", "name": pluginApi?.tr("settings.loadModeMerge") }
+                ]
+                currentKey: root.defaultLoadMode
+                onSelected: (key) => { root.defaultLoadMode = key; saveSettings() }
             }
 
             NDivider { Layout.fillWidth: true; Layout.topMargin: Style.marginXS; Layout.bottomMargin: Style.marginXS }

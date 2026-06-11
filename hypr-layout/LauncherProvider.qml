@@ -59,33 +59,39 @@ Item {
         return out
     }
 
-    function _loadResults(query, replace) {
+    function _loadResults(query, mode) {
         var q = query.trim().toLowerCase()
         var results = []
         var names = _layoutNames()
+        var desc = mode === "replace" ? pluginApi.tr("launcher.replaceDesc")
+                 : mode === "merge" ? pluginApi.tr("launcher.mergeDesc")
+                 : pluginApi.tr("launcher.loadDesc")
+        var ico = mode === "replace" ? "replace"
+                : mode === "merge" ? "arrows-exchange" : "folder-open"
         for (var i = 0; i < names.length; i++) {
             var nm = names[i]
             if (q.length > 0 && nm.toLowerCase().indexOf(q) === -1)
                 continue
             results.push({
                 "name": nm,
-                "description": replace ? pluginApi.tr("launcher.replaceDesc")
-                                       : pluginApi.tr("launcher.loadDesc"),
-                "icon": replace ? "replace" : "folder-open",
+                "description": desc,
+                "icon": ico,
                 "isTablerIcon": true,
-                "onActivate": (function (n, r) {
-                    return function () { root.pluginApi.mainInstance.loadLayout(n, r) }
-                })(nm, replace)
+                "onActivate": (function (n, mo) {
+                    return function () { root.pluginApi.mainInstance.loadLayout(n, mo) }
+                })(nm, mode)
             })
         }
         return results
     }
 
     function getResults(searchText) {
+        if (searchText.startsWith(">hl-merge"))
+            return _loadResults(searchText.slice(">hl-merge".length), "merge")
         if (searchText.startsWith(">hl-load"))
-            return _loadResults(searchText.slice(">hl-load".length), false)
+            return _loadResults(searchText.slice(">hl-load".length), "add")
         if (searchText.startsWith(">hl-replace"))
-            return _loadResults(searchText.slice(">hl-replace".length), true)
+            return _loadResults(searchText.slice(">hl-replace".length), "replace")
         if (searchText.startsWith(">hl-save")) {
             var nm = searchText.slice(">hl-save".length).trim()
             if (nm.length === 0)
