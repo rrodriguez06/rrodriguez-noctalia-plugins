@@ -1036,11 +1036,15 @@ Item {
         id: overlay
         anchors.fill: parent
 
-        // fond des cadres (écrans), sous tout le reste
+        // fond des cadres (écrans), sous tout le reste. L'en-tête (nom + onglets ws + « + »)
+        // est un enfant ANCRÉ juste au-dessus du cadre (anchors.bottom: parent.top) : il flotte
+        // hors du cadre, ne chevauche plus le contenu ni les splits, et suit le cadre par ancrage.
         Repeater {
             model: editor.framesModel
             delegate: Rectangle {
+                id: frameBg
                 required property var modelData
+                readonly property string frameName: modelData.name
                 x: modelData.x; y: modelData.y
                 width: modelData.w; height: modelData.h
                 radius: Style.radiusS
@@ -1051,6 +1055,86 @@ Item {
                 Behavior on y { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
                 Behavior on width { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
                 Behavior on height { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
+
+                // --- barre d'en-tête flottante, posée au-dessus du cadre ---
+                Row {
+                    id: frameHeader
+                    anchors.bottom: parent.top
+                    anchors.bottomMargin: Style.marginXS
+                    anchors.left: parent.left
+                    anchors.leftMargin: Style.marginXS
+                    spacing: Style.marginXXS
+                    readonly property string frameName: frameBg.frameName
+
+                    Rectangle {
+                        height: 22 * Style.uiScaleRatio
+                        width: nameText.implicitWidth + Style.marginS * 2
+                        radius: Style.radiusXS
+                        color: Color.mSurface
+                        NText {
+                            id: nameText
+                            anchors.centerIn: parent
+                            text: frameHeader.frameName + (frameBg.modelData.online ? "" : " (hors-ligne)")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurface
+                        }
+                    }
+                    Repeater {
+                        model: frameBg.modelData.wss
+                        delegate: Rectangle {
+                            id: wsTab
+                            required property var modelData
+                            property bool active: editor.selectedWs[frameHeader.frameName] === modelData
+                            // survolé pendant un drag -> spring-load (bascule après délai)
+                            property bool dragHot: editor.ptrInItem(wsTab)
+                            onDragHotChanged: dragHot ? editor.requestSpring(frameHeader.frameName, wsTab.modelData)
+                                                      : editor.cancelSpringIf("ws", frameHeader.frameName, wsTab.modelData)
+                            height: 22 * Style.uiScaleRatio
+                            width: wsText.implicitWidth + Style.marginS * 2
+                            radius: Style.radiusXS
+                            color: active ? Color.mPrimary : (dragHot ? Color.mSecondary : Color.mSurface)
+                            border.width: dragHot ? Math.max(1, Style.borderS) : 0
+                            border.color: Color.mPrimary
+                            NText {
+                                id: wsText
+                                anchors.centerIn: parent
+                                text: "ws " + wsTab.modelData
+                                pointSize: Style.fontSizeXS
+                                color: wsTab.active ? Color.mOnPrimary : Color.mOnSurfaceVariant
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: editor.setWs(frameHeader.frameName, wsTab.modelData)
+                            }
+                        }
+                    }
+                    // bouton « + » : ajoute un ws (prochain numéro libre, binds respectés) ; au survol
+                    // pendant un drag, crée-le et bascule dedans (spring-load).
+                    Rectangle {
+                        id: addTab
+                        property bool dragHot: editor.ptrInItem(addTab)
+                        onDragHotChanged: dragHot ? editor.requestSpringAdd(frameHeader.frameName)
+                                                  : editor.cancelSpringIf("add", frameHeader.frameName, undefined)
+                        height: 22 * Style.uiScaleRatio
+                        width: height
+                        radius: Style.radiusXS
+                        color: dragHot ? Color.mSecondary : Color.mSurface
+                        border.width: dragHot ? Math.max(1, Style.borderS) : 0
+                        border.color: Color.mPrimary
+                        NIcon {
+                            anchors.centerIn: parent
+                            icon: "plus"
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: editor.addWorkspace(frameHeader.frameName)
+                        }
+                    }
+                }
             }
         }
 
@@ -1258,94 +1342,6 @@ Item {
                                 lastX = rp.x; lastY = rp.y
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        // en-têtes de cadre (au-dessus des box : nom écran + onglets ws, cliquables)
-        Repeater {
-            model: editor.framesModel
-            delegate: Row {
-                id: frameHeader
-                required property var modelData
-                readonly property string frameName: modelData.name
-                x: modelData.x + Style.marginXS
-                // barre flottante posée AU-DESSUS du cadre (et non dedans) : n'empiète plus sur
-                // le contenu du ws ni sur les poignées de split (plus de vol de clic du « + »).
-                // Hauteur inlinée (un Row n'expose pas sa height de façon fiable pour s'auto-positionner).
-                y: modelData.y - (22 * Style.uiScaleRatio) - Style.marginS
-                spacing: Style.marginXXS
-                z: 40
-                Behavior on x { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
-                Behavior on y { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
-
-                Rectangle {
-                    height: 22 * Style.uiScaleRatio
-                    width: nameText.implicitWidth + Style.marginS * 2
-                    radius: Style.radiusXS
-                    color: Color.mSurface
-                    NText {
-                        id: nameText
-                        anchors.centerIn: parent
-                        text: frameHeader.frameName + (frameHeader.modelData.online ? "" : " (hors-ligne)")
-                        pointSize: Style.fontSizeXS
-                        color: Color.mOnSurface
-                    }
-                }
-                Repeater {
-                    model: frameHeader.modelData.wss
-                    delegate: Rectangle {
-                        id: wsTab
-                        required property var modelData
-                        property bool active: editor.selectedWs[frameHeader.frameName] === modelData
-                        // survolé pendant un drag -> spring-load (bascule après délai)
-                        property bool dragHot: editor.ptrInItem(wsTab)
-                        onDragHotChanged: dragHot ? editor.requestSpring(frameHeader.frameName, wsTab.modelData)
-                                                  : editor.cancelSpringIf("ws", frameHeader.frameName, wsTab.modelData)
-                        height: 22 * Style.uiScaleRatio
-                        width: wsText.implicitWidth + Style.marginS * 2
-                        radius: Style.radiusXS
-                        color: active ? Color.mPrimary : (dragHot ? Color.mSecondary : Color.mSurface)
-                        border.width: dragHot ? Math.max(1, Style.borderS) : 0
-                        border.color: Color.mPrimary
-                        NText {
-                            id: wsText
-                            anchors.centerIn: parent
-                            text: "ws " + wsTab.modelData
-                            pointSize: Style.fontSizeXS
-                            color: wsTab.active ? Color.mOnPrimary : Color.mOnSurfaceVariant
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: editor.setWs(frameHeader.frameName, wsTab.modelData)
-                        }
-                    }
-                }
-                // bouton « + » : ajoute un ws (prochain numéro libre, binds respectés) ; au survol
-                // pendant un drag, crée-le et bascule dedans (spring-load).
-                Rectangle {
-                    id: addTab
-                    property bool dragHot: editor.ptrInItem(addTab)
-                    onDragHotChanged: dragHot ? editor.requestSpringAdd(frameHeader.frameName)
-                                              : editor.cancelSpringIf("add", frameHeader.frameName, undefined)
-                    height: 22 * Style.uiScaleRatio
-                    width: height
-                    radius: Style.radiusXS
-                    color: dragHot ? Color.mSecondary : Color.mSurface
-                    border.width: dragHot ? Math.max(1, Style.borderS) : 0
-                    border.color: Color.mPrimary
-                    NIcon {
-                        anchors.centerIn: parent
-                        icon: "plus"
-                        pointSize: Style.fontSizeXS
-                        color: Color.mOnSurfaceVariant
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: editor.addWorkspace(frameHeader.frameName)
                     }
                 }
             }
