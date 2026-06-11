@@ -1270,7 +1270,9 @@ Item {
                 x: modelData.x + Style.marginXS
                 y: modelData.y + Style.marginXS
                 spacing: Style.marginXXS
-                z: 5
+                // au-dessus des poignées de split (z:30) : onglets ws / bouton « + » prioritaires
+                // sur un divider qui passerait juste en dessous (sinon le drag de split vole le clic)
+                z: 40
                 Behavior on x { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
 
                 Rectangle {

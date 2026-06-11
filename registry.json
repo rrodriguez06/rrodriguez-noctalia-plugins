@@ -3,14 +3,14 @@
     {
       "id": "hypr-layout",
       "name": "Hypr Layout",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Sauvegarde et restaure des dispositions de fenetres Hyprland (via le CLI hypr-layout).",
       "tags": ["Bar", "Panel", "Launcher", "Utility"],
       "official": false,
       "minNoctaliaVersion": "4.5.0",
-      "lastUpdated": "2026-06-11T00:00:00Z",
+      "lastUpdated": "2026-06-11T12:00:00Z",
       "entryPoints": {
         "main": "Main.qml",
         "barWidget": "BarWidget.qml",
