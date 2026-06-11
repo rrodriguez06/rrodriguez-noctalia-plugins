@@ -22,7 +22,7 @@ Item {
     property var autoWss: ({})        // écran -> ws par défaut auto-injecté (écran live mais vide)
 
     // --- drawer d'applications (ajout/retrait de fenêtres au layout) ---
-    property bool drawerOpen: true
+    property bool drawerOpen: false
     property string appQuery: ""
     property var allApps: []          // [DesktopEntry] visibles, triées par nom
     property var filteredApps: {
@@ -633,7 +633,6 @@ Item {
         cancelSpring()
         ptrX = -1; ptrY = -1
         var id = draggingId
-        var wasNew = draggingNew
         draggingNew = false
         var w = windowById(id)
         if (!w) { draggingId = -1; recompute(); return }
@@ -667,13 +666,14 @@ Item {
                 var lp = globalPoint(rx, ry)
                 trees[key] = Dwindle.insertAt(trees[key] || null, regionFor(key, M), id, lp.x, lp.y)
             }
-        } else if (wasNew) {
-            // nouvelle appli lâchée dans le vide -> jamais atterrie, on l'annule
+        } else {
+            // lâchée hors de tout cadre (et hors tray/drawer) -> retrait du layout. Vaut aussi bien
+            // pour une nouvelle appli jamais posée que pour une fenêtre existante : on peut ainsi
+            // retirer une fenêtre en la glissant simplement hors des workspaces, drawer fermé ou non.
             draggingId = -1
             removeWindow(id)
             return
         }
-        // sinon (fenêtre existante lâchée dans le vide) : on annule, recompute restaure la position
         draggingId = -1
         recompute()
     }
