@@ -1270,12 +1270,11 @@ Item {
                 id: frameHeader
                 required property var modelData
                 readonly property string frameName: modelData.name
-                // hauteur explicite (un Row n'expose pas sa height de façon fiable pour s'auto-positionner)
-                readonly property real headerH: 22 * Style.uiScaleRatio
                 x: modelData.x + Style.marginXS
-                // placé juste AU-DESSUS du cadre (et non dedans) : n'empiète plus sur le contenu
-                // du ws ni sur les poignées de split, donc plus de vol de clic du bouton « + »
-                y: modelData.y - headerH - Style.marginS
+                // barre flottante posée AU-DESSUS du cadre (et non dedans) : n'empiète plus sur
+                // le contenu du ws ni sur les poignées de split (plus de vol de clic du « + »).
+                // Hauteur inlinée (un Row n'expose pas sa height de façon fiable pour s'auto-positionner).
+                y: modelData.y - (22 * Style.uiScaleRatio) - Style.marginS
                 spacing: Style.marginXXS
                 z: 40
                 Behavior on x { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }

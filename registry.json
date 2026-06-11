@@ -3,7 +3,7 @@
     {
       "id": "hypr-layout",
       "name": "Hypr Layout",
-      "version": "0.3.5",
+      "version": "0.3.6",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Sauvegarde et restaure des dispositions de fenetres Hyprland (via le CLI hypr-layout).",
