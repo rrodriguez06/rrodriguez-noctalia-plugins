@@ -22,6 +22,21 @@ Item {
     // Layout en cours d'édition ("" = aucun -> on affiche la liste).
     property string editingLayoutName: ""
 
+    // Réglages d'apparence/comportement (lus depuis pluginApi.pluginSettings).
+    readonly property bool colorizeAppIcons: (pluginApi?.pluginSettings?.colorizeAppIcons ?? false)
+                                             && (pluginApi?.pluginSettings?.appIconColor ?? "primary") !== "none"
+    readonly property color appIconTint: Color.resolveColorKey(pluginApi?.pluginSettings?.appIconColor ?? "primary")
+    readonly property bool closePanelOnAction: pluginApi?.pluginSettings?.closePanelOnAction ?? false
+    readonly property bool confirmDelete: pluginApi?.pluginSettings?.confirmDelete ?? true
+    // Mode du bouton de chargement primaire ("Charger") : "add" ou "replace".
+    readonly property string defaultLoadMode: pluginApi?.pluginSettings?.defaultLoadMode ?? "add"
+
+    // Ferme le panneau après une action mutante si l'option est activée.
+    function _afterAction() {
+        if (closePanelOnAction && pluginApi)
+            pluginApi.withCurrentScreen(s => pluginApi.closePanel(s))
+    }
+
     onVisibleChanged: {
         if (visible && mainInstance) {
             mainInstance.refresh()
@@ -138,6 +153,7 @@ Item {
                             onClicked: {
                                 root.mainInstance.saveLayout(saveInput.text)
                                 saveInput.text = ""
+                                root._afterAction()
                             }
                         }
                     }
@@ -164,6 +180,9 @@ Item {
                     required property int monitors
                     property bool expanded: false
                     property bool editing: false
+                    property bool confirmingDelete: false
+
+                    Timer { id: confirmDeleteTimer; interval: 3000; onTriggered: card.confirmingDelete = false }
 
                     width: ListView.view ? ListView.view.width : 0
                     implicitHeight: cardCol.implicitHeight + Style.marginS * 2
@@ -210,18 +229,26 @@ Item {
                                     color: Color.mOnSurfaceVariant
                                 }
                             }
+                            // Bouton primaire : suit le mode de chargement par défaut.
                             NButton {
                                 visible: !card.editing
-                                text: "Charger"
+                                text: root.defaultLoadMode === "replace" ? "Remplacer" : "Charger"
                                 fontSize: Style.fontSizeS
-                                onClicked: root.mainInstance.loadLayout(card.name, false)
+                                onClicked: {
+                                    root.mainInstance.loadLayout(card.name, root.defaultLoadMode === "replace")
+                                    root._afterAction()
+                                }
                             }
+                            // Bouton secondaire : action de chargement opposée.
                             NButton {
                                 visible: !card.editing
-                                text: "Remplacer"
+                                text: root.defaultLoadMode === "replace" ? "Charger" : "Remplacer"
                                 outlined: true
                                 fontSize: Style.fontSizeS
-                                onClicked: root.mainInstance.loadLayout(card.name, true)
+                                onClicked: {
+                                    root.mainInstance.loadLayout(card.name, root.defaultLoadMode !== "replace")
+                                    root._afterAction()
+                                }
                             }
                             NIconButton {
                                 visible: !card.editing
@@ -242,10 +269,20 @@ Item {
                             }
                             NIconButton {
                                 visible: !card.editing
-                                icon: "trash"
-                                tooltipText: "Supprimer"
+                                icon: card.confirmingDelete ? "alert-triangle" : "trash"
+                                tooltipText: card.confirmingDelete ? "Confirmer la suppression" : "Supprimer"
+                                colorFg: card.confirmingDelete ? Color.mError : Color.mPrimary
                                 colorFgHover: Color.mError
-                                onClicked: root.mainInstance.deleteLayout(card.name)
+                                onClicked: {
+                                    if (root.confirmDelete && !card.confirmingDelete) {
+                                        card.confirmingDelete = true
+                                        confirmDeleteTimer.restart()
+                                    } else {
+                                        card.confirmingDelete = false
+                                        root.mainInstance.deleteLayout(card.name)
+                                        root._afterAction()
+                                    }
+                                }
                             }
 
                             // mode édition : champ + valider / annuler
@@ -263,6 +300,7 @@ Item {
                                 onClicked: {
                                     root.mainInstance.renameLayout(card.name, renameInput.text)
                                     card.editing = false
+                                    root._afterAction()
                                 }
                             }
                             NIconButton {
@@ -289,23 +327,12 @@ Item {
                                     Layout.leftMargin: Style.marginS
                                     spacing: Style.marginS
 
-                                    Item {
+                                    AppIcon {
                                         Layout.preferredWidth: 20
                                         Layout.preferredHeight: 20
-                                        IconImage {
-                                            id: appImg
-                                            anchors.fill: parent
-                                            source: root.appIcon(modelData["class"])
-                                            visible: source != ""
-                                            asynchronous: true
-                                            smooth: true
-                                        }
-                                        NIcon {
-                                            anchors.centerIn: parent
-                                            visible: appImg.source == ""
-                                            icon: "app-window"
-                                            color: Color.mOnSurfaceVariant
-                                        }
+                                        iconSource: root.appIcon(modelData["class"])
+                                        colorize: root.colorizeAppIcons
+                                        tintColor: root.appIconTint
                                     }
                                     NText {
                                         Layout.fillWidth: true

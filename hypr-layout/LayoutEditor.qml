@@ -14,6 +14,11 @@ Item {
     property var pluginApi: null
     readonly property var mainInstance: pluginApi?.mainInstance
 
+    // Colorisation optionnelle des icônes d'apps (cf. AppIcon.qml + réglages du plugin).
+    readonly property bool colorizeAppIcons: (pluginApi?.pluginSettings?.colorizeAppIcons ?? false)
+                                             && (pluginApi?.pluginSettings?.appIconColor ?? "primary") !== "none"
+    readonly property color appIconTint: Color.resolveColorKey(pluginApi?.pluginSettings?.appIconColor ?? "primary")
+
     property string layoutName: ""
     property var windows: []          // copie de travail (chaque fenêtre a un _id stable)
     property var monitors: []         // géométrie écrans live
@@ -620,7 +625,7 @@ Item {
             addWorkspace(s.monitor)
         }
     }
-    Timer { id: springTimer; interval: 250; onTriggered: editor.fireSpring() }
+    Timer { id: springTimer; interval: editor.pluginApi?.pluginSettings?.springLoadDelay ?? 250; onTriggered: editor.fireSpring() }
     function monitorFrameAt(rx, ry) {
         for (var i = 0; i < framesModel.length; i++) {
             var f = framesModel[i]
@@ -950,10 +955,11 @@ Item {
                                 anchors.leftMargin: Style.marginXS
                                 anchors.rightMargin: Style.marginXS
                                 spacing: Style.marginS
-                                IconImage {
+                                AppIcon {
                                     Layout.preferredWidth: 24; Layout.preferredHeight: 24
-                                    source: Quickshell.iconPath(appRow.modelData.icon, true)
-                                    asynchronous: true; smooth: true
+                                    iconSource: Quickshell.iconPath(appRow.modelData.icon, true)
+                                    colorize: editor.colorizeAppIcons
+                                    tintColor: editor.appIconTint
                                 }
                                 NText {
                                     Layout.fillWidth: true
@@ -1233,22 +1239,12 @@ Item {
                     ColumnLayout {
                         anchors.centerIn: parent
                         spacing: Style.marginXXS
-                        Item {
+                        AppIcon {
                             Layout.alignment: Qt.AlignHCenter
                             Layout.preferredWidth: 28; Layout.preferredHeight: 28
-                            IconImage {
-                                id: img
-                                anchors.fill: parent
-                                source: editor.appIcon(box.modelData["class"])
-                                visible: source != ""
-                                asynchronous: true; smooth: true
-                            }
-                            NIcon {
-                                anchors.centerIn: parent
-                                visible: img.source == ""
-                                icon: "app-window"
-                                color: Color.mOnSurfaceVariant
-                            }
+                            iconSource: editor.appIcon(box.modelData["class"])
+                            colorize: editor.colorizeAppIcons
+                            tintColor: editor.appIconTint
                         }
                         NText {
                             Layout.alignment: Qt.AlignHCenter
@@ -1388,21 +1384,11 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Style.marginXS
-                    Item {
+                    AppIcon {
                         Layout.preferredWidth: 18; Layout.preferredHeight: 18
-                        IconImage {
-                            id: menuIcon
-                            anchors.fill: parent
-                            source: winMenu.win ? editor.appIcon(winMenu.win["class"]) : ""
-                            visible: source != ""
-                            asynchronous: true; smooth: true
-                        }
-                        NIcon {
-                            anchors.centerIn: parent
-                            visible: menuIcon.source == ""
-                            icon: "app-window"
-                            color: Color.mOnSurfaceVariant
-                        }
+                        iconSource: winMenu.win ? editor.appIcon(winMenu.win["class"]) : ""
+                        colorize: editor.colorizeAppIcons
+                        tintColor: editor.appIconTint
                     }
                     NText {
                         Layout.fillWidth: true

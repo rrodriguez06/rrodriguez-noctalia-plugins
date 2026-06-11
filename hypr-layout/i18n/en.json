@@ -13,15 +13,36 @@
         "clean": "Close all windows"
     },
     "settings": {
+        "tabs": {
+            "behavior": "Behavior",
+            "appearance": "Appearance",
+            "commands": "Commands"
+        },
         "confirmClean": "Confirm before \"Close all\"",
         "confirmCleanDesc": "Ask for confirmation before closing every window.",
+        "confirmDelete": "Confirm before delete",
+        "confirmDeleteDesc": "Require a second click to delete a layout.",
         "showToasts": "Notifications",
         "showToastsDesc": "Show a toast on save / load / delete.",
+        "closePanelOnAction": "Close panel after an action",
+        "closePanelOnActionDesc": "Automatically close the panel after loading, saving, renaming or deleting a layout.",
+        "defaultLoadMode": "Replace by default",
+        "defaultLoadModeDesc": "Make the primary load button replace every window instead of adding to the current ones.",
+        "springLoadDelay": "Editor spring-load delay",
+        "springLoadDelayDesc": "Delay before switching workspace when dragging a window over a tab in the editor",
+        "colorizeAppIcons": "Colorize app icons",
+        "colorizeAppIconsDesc": "Tint application icons (in the layout list and the editor) with a palette color.",
+        "appIconColor": "Icon color",
+        "appIconColorDesc": "Palette color used to tint application icons.",
         "overrides": "Launch commands (class → command)",
         "overridesDesc": "Override the launch command per window class. Fixes apps that are skipped when loading because their real command can't be relaunched.",
         "removeOverride": "Remove",
         "addOverride": "Add",
         "classPlaceholder": "window class",
         "commandPlaceholder": "launch command"
+    },
+    "context": {
+        "settings": "Settings",
+        "clean": "Close all windows"
     }
 }

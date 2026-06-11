@@ -13,15 +13,36 @@
         "clean": "Fermer toutes les fenêtres"
     },
     "settings": {
+        "tabs": {
+            "behavior": "Comportement",
+            "appearance": "Apparence",
+            "commands": "Commandes"
+        },
         "confirmClean": "Confirmer avant « Tout fermer »",
         "confirmCleanDesc": "Demander une confirmation avant de fermer toutes les fenêtres.",
+        "confirmDelete": "Confirmer avant suppression",
+        "confirmDeleteDesc": "Exiger un second clic pour supprimer un layout.",
         "showToasts": "Notifications",
         "showToastsDesc": "Afficher un toast au save / load / suppression.",
+        "closePanelOnAction": "Fermer le panneau après une action",
+        "closePanelOnActionDesc": "Fermer automatiquement le panneau après avoir chargé, sauvé, renommé ou supprimé un layout.",
+        "defaultLoadMode": "Remplacer par défaut",
+        "defaultLoadModeDesc": "Le bouton de chargement principal remplace toutes les fenêtres au lieu de les ajouter aux fenêtres actuelles.",
+        "springLoadDelay": "Délai spring-load de l'éditeur",
+        "springLoadDelayDesc": "Délai avant de changer de workspace en glissant une fenêtre sur un onglet dans l'éditeur",
+        "colorizeAppIcons": "Coloriser les icônes d'applis",
+        "colorizeAppIconsDesc": "Teinte les icônes d'applications (dans la liste des layouts et l'éditeur) avec une couleur de la palette.",
+        "appIconColor": "Couleur des icônes",
+        "appIconColorDesc": "Couleur de la palette utilisée pour teinter les icônes d'applications.",
         "overrides": "Commandes de lancement (classe → commande)",
         "overridesDesc": "Surcharge la commande de lancement par classe de fenêtre. Corrige les applis ignorées au chargement quand leur commande réelle ne peut pas être relancée.",
         "removeOverride": "Retirer",
         "addOverride": "Ajouter",
         "classPlaceholder": "classe de fenêtre",
         "commandPlaceholder": "commande de lancement"
+    },
+    "context": {
+        "settings": "Paramètres",
+        "clean": "Fermer toutes les fenêtres"
     }
 }
