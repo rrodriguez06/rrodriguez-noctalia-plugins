@@ -1,0 +1,78 @@
+{
+    "ccw": {
+        "tooltip": "Home Server Control"
+    },
+    "context": {
+        "refresh": "Rafraîchir",
+        "settings": "Paramètres"
+    },
+    "panel": {
+        "title": "Home Server Control",
+        "subtitle": "Monitore & pilote tes services Docker en SSH",
+        "refresh": "Rafraîchir",
+        "openSsh": "Ouvrir un SSH sur l'hôte",
+        "noHosts": "Aucun hôte configuré",
+        "noHostsHint": "Ajoute un hôte dans les paramètres du plugin.",
+        "unreachable": "Hôte injoignable — vérifie l'alias SSH.",
+        "noServices": "Aucun service trouvé.",
+        "checkUpdate": "Vérifier les MAJ",
+        "update": "Mettre à jour",
+        "deployFull": "Redéploiement complet",
+        "logs": "Logs",
+        "restart": "Redémarrer",
+        "start": "Démarrer",
+        "stop": "Arrêter",
+        "shell": "Ouvrir un shell dans le conteneur",
+        "openUrl": "Ouvrir l'URL",
+        "confirm": "Confirmer ?",
+        "readOnly": "lecture seule",
+        "load": "charge",
+        "uptime": "uptime",
+        "closeLogs": "Fermer les logs"
+    },
+    "launcher": {
+        "status": "État du serveur",
+        "statusDesc": "Ouvrir le panneau Home Server",
+        "restart": "Redémarrer un service",
+        "restartDesc": "Choisir un service à redémarrer",
+        "logs": "Logs d'un service",
+        "logsDesc": "Streamer les logs d'un service",
+        "shell": "Shell dans un conteneur",
+        "shellDesc": "Ouvrir un shell dans un conteneur"
+    },
+    "settings": {
+        "tabs": {
+            "hosts": "Hôtes",
+            "behavior": "Comportement"
+        },
+        "hosts": "Serveurs (SSH)",
+        "hostsDesc": "Chaque hôte est joint via un alias ~/.ssh/config. Aucun secret n'est stocké ici.",
+        "hostName": "Nom",
+        "sshAlias": "Alias SSH",
+        "hsrPath": "Chemin de Home-Server-Runner",
+        "readOnly": "Lecture seule",
+        "readOnlyDesc": "Masque toutes les actions de contrôle pour cet hôte (monitoring seul).",
+        "testConnection": "Tester la connexion",
+        "addHost": "Ajouter un hôte",
+        "removeHost": "Supprimer",
+        "namePlaceholder": "Nom affiché",
+        "aliasPlaceholder": "alias ssh (de ~/.ssh/config)",
+        "pathPlaceholder": "~/Home-Server-Runner",
+        "confirmDestructive": "Confirmer les actions destructives",
+        "confirmDestructiveDesc": "Exiger un second clic pour arrêter / redémarrer / mettre à jour.",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Afficher un toast à chaque action.",
+        "notifyOnStateChange": "Alerter quand un service tombe",
+        "notifyOnStateChangeDesc": "Toast + notification quand un service passe exited ou unhealthy.",
+        "closePanelOnAction": "Fermer le panneau après une action",
+        "closePanelOnActionDesc": "Ferme automatiquement le panneau après une action de contrôle.",
+        "terminalCommand": "Commande du terminal",
+        "terminalCommandDesc": "Utilisée pour ouvrir un SSH / shell de conteneur (ex. « kitty -e »).",
+        "logTailLines": "Lignes de logs initiales",
+        "logTailLinesDesc": "Nombre de lignes récentes chargées au démarrage du flux.",
+        "pollIdle": "Intervalle au repos (ms)",
+        "pollIdleDesc": "Période de rafraîchissement quand le panneau est fermé.",
+        "pollOpen": "Intervalle ouvert (ms)",
+        "pollOpenDesc": "Période de rafraîchissement quand le panneau est ouvert."
+    }
+}

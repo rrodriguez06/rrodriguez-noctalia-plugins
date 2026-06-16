@@ -19,6 +19,26 @@
         "launcherProvider": "LauncherProvider.qml",
         "controlCenterWidget": "ControlCenterWidget.qml"
       }
+    },
+    {
+      "id": "home-server-control",
+      "name": "Home Server Control",
+      "version": "0.1.0",
+      "author": "rrodriguez06",
+      "license": "MIT",
+      "description": "Monitore et pilote les services Docker d'un home server via SSH (Home-Server-Runner).",
+      "tags": ["Bar", "Panel", "Launcher", "ControlCenter", "Utility"],
+      "official": false,
+      "minNoctaliaVersion": "4.5.0",
+      "lastUpdated": "2026-06-16T12:00:00Z",
+      "entryPoints": {
+        "main": "Main.qml",
+        "barWidget": "BarWidget.qml",
+        "panel": "Panel.qml",
+        "settings": "Settings.qml",
+        "launcherProvider": "LauncherProvider.qml",
+        "controlCenterWidget": "ControlCenterWidget.qml"
+      }
     }
   ]
 }

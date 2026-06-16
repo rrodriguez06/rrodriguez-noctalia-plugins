@@ -1,0 +1,78 @@
+{
+    "ccw": {
+        "tooltip": "Home Server Control"
+    },
+    "context": {
+        "refresh": "Refresh",
+        "settings": "Settings"
+    },
+    "panel": {
+        "title": "Home Server Control",
+        "subtitle": "Monitor & control your Docker services over SSH",
+        "refresh": "Refresh",
+        "openSsh": "Open SSH on host",
+        "noHosts": "No host configured",
+        "noHostsHint": "Add a host in the plugin settings.",
+        "unreachable": "Host unreachable — check the SSH alias.",
+        "noServices": "No service found.",
+        "checkUpdate": "Check for updates",
+        "update": "Update changed",
+        "deployFull": "Full redeploy",
+        "logs": "Logs",
+        "restart": "Restart",
+        "start": "Start",
+        "stop": "Stop",
+        "shell": "Open a shell in the container",
+        "openUrl": "Open URL",
+        "confirm": "Confirm?",
+        "readOnly": "read-only",
+        "load": "load",
+        "uptime": "uptime",
+        "closeLogs": "Close logs"
+    },
+    "launcher": {
+        "status": "Server status",
+        "statusDesc": "Open the Home Server panel",
+        "restart": "Restart a service",
+        "restartDesc": "Pick a service to restart",
+        "logs": "Service logs",
+        "logsDesc": "Stream the logs of a service",
+        "shell": "Container shell",
+        "shellDesc": "Open a shell in a container"
+    },
+    "settings": {
+        "tabs": {
+            "hosts": "Hosts",
+            "behavior": "Behavior"
+        },
+        "hosts": "Servers (SSH)",
+        "hostsDesc": "Each host is reached through a ~/.ssh/config alias. No credentials are stored here.",
+        "hostName": "Name",
+        "sshAlias": "SSH alias",
+        "hsrPath": "Home-Server-Runner path",
+        "readOnly": "Read-only",
+        "readOnlyDesc": "Hide every control action for this host (monitoring only).",
+        "testConnection": "Test connection",
+        "addHost": "Add a host",
+        "removeHost": "Remove",
+        "namePlaceholder": "Display name",
+        "aliasPlaceholder": "ssh alias (from ~/.ssh/config)",
+        "pathPlaceholder": "~/Home-Server-Runner",
+        "confirmDestructive": "Confirm destructive actions",
+        "confirmDestructiveDesc": "Require a second click for stop / restart / update.",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Show a toast on each action.",
+        "notifyOnStateChange": "Alert when a service goes down",
+        "notifyOnStateChangeDesc": "Toast + desktop notification when a service becomes exited or unhealthy.",
+        "closePanelOnAction": "Close panel after an action",
+        "closePanelOnActionDesc": "Automatically close the panel after a control action.",
+        "terminalCommand": "Terminal command",
+        "terminalCommandDesc": "Used to open SSH / container shells (e.g. \"kitty -e\").",
+        "logTailLines": "Log tail lines",
+        "logTailLinesDesc": "Number of recent log lines to load when streaming.",
+        "pollIdle": "Idle refresh interval (ms)",
+        "pollIdleDesc": "Polling period when the panel is closed.",
+        "pollOpen": "Open refresh interval (ms)",
+        "pollOpenDesc": "Polling period when the panel is open."
+    }
+}

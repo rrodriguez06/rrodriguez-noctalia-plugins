@@ -1,0 +1,38 @@
+{
+  "id": "home-server-control",
+  "name": "Home Server Control",
+  "version": "0.1.0",
+  "minNoctaliaVersion": "4.5.0",
+  "author": "rrodriguez06",
+  "license": "MIT",
+  "description": "Monitore et pilote les services Docker d'un home server via SSH (Home-Server-Runner).",
+  "tags": ["Bar", "Panel", "Launcher", "ControlCenter", "Utility"],
+  "entryPoints": {
+    "main": "Main.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml",
+    "settings": "Settings.qml",
+    "launcherProvider": "LauncherProvider.qml",
+    "controlCenterWidget": "ControlCenterWidget.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {
+      "hosts": [
+        { "name": "home-server", "sshAlias": "home-server", "hsrPath": "~/Home-Server-Runner", "readOnly": false }
+      ],
+      "activeHostIndex": 0,
+      "pollIntervalIdleMs": 45000,
+      "pollIntervalOpenMs": 8000,
+      "driftFetchOnOpen": true,
+      "confirmDestructive": true,
+      "showToasts": true,
+      "notifyOnStateChange": true,
+      "closePanelOnAction": false,
+      "terminalCommand": "kitty -e",
+      "logTailLines": 200
+    }
+  }
+}
