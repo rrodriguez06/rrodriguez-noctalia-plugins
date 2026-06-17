@@ -29,6 +29,8 @@
         "readOnly": "lecture seule",
         "load": "charge",
         "uptime": "uptime",
+        "writable": "inscriptible",
+        "readOnlyConn": "lecture seule",
         "closeLogs": "Fermer les logs",
         "openInTerminal": "Ouvrir les logs dans un terminal",
         "scrollBottom": "Revenir en bas"
@@ -58,6 +60,9 @@
         "modeAuto": "Auto",
         "modeDocker": "Docker",
         "modeHsr": "Home-Server-Runner",
+        "modeGcloud": "Cloud Run (gcloud)",
+        "projectPlaceholder": "id projet GCP",
+        "regionPlaceholder": "région (vide = toutes)",
         "readOnly": "Lecture seule",
         "readOnlyDesc": "Masque toutes les actions de contrôle pour cet hôte (monitoring seul).",
         "testConnection": "Tester la connexion",

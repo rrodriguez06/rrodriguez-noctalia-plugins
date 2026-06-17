@@ -18,10 +18,25 @@ Chaque hôte a un **mode** dans les réglages :
 | **Auto** *(défaut)* | tu ne sais pas / les deux | sonde `manager.py` sur l'hôte → bascule HSR si présent, sinon Docker |
 | **Docker** | n'importe quel hôte avec `docker` | liste/état/santé/ports/URLs, logs, shell, start/stop/restart, « relancer tout » |
 | **Home-Server-Runner** | tu utilises HSR | tout Docker **+** « Vérifier les MAJ », « Mettre à jour », « Redéploiement complet », retard de commits |
+| **Cloud Run (gcloud)** | services GCP Cloud Run | état des services (par région) + logs Cloud Logging + URL `*.run.app`. Lecture seule (v1). |
 
 En mode Docker, les conteneurs sont regroupés par **projet docker compose** (label
 `com.docker.compose.project`), avec un bucket **`standalone`** pour les conteneurs hors compose.
 Les boutons et badges git-aware sont automatiquement masqués (Docker n'a pas de notion de rebuild git).
+
+### Mode Cloud Run (gcloud)
+
+Renseigne le **projet GCP** (et une **région** optionnelle ; vide = toutes) sur l'hôte. Le plugin
+utilise le CLI `gcloud` avec le **compte actif** (`gcloud config get-value account`) :
+
+- **Service Account** (`*.gserviceaccount.com`) → accès **lecture seule** ;
+- **compte utilisateur** (après `gcloud auth login`) → marqué **inscriptible**.
+
+Un badge dans l'en-tête indique le compte connecté et son niveau d'accès ; les actions sont
+masquées/affichées en conséquence. v1 = status + logs uniquement (Cloud Run n'a pas de stop/restart
+natifs). Après un changement d'auth (`gcloud auth login` / `activate-service-account`), clique
+**Rafraîchir** pour re-détecter l'accès. Les services sont regroupés par **région**. Comme pour
+Docker, `gcloud` peut tourner en **local** (alias SSH vide) ou sur un hôte distant.
 
 ## Local vs SSH
 

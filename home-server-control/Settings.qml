@@ -27,10 +27,11 @@ ColumnLayout {
         if (!pluginApi?.pluginSettings) return
         _loaded = false
         var s = pluginApi.pluginSettings
-        // Migration : les hôtes existants n'ont pas de `mode` -> défaut "auto" (re-persisté au save).
+        // Migration : les hôtes existants n'ont pas de `mode`/`project`/`region` -> défauts (re-persistés au save).
         hostsLocal = (s.hosts ?? []).map(function (h) {
             return { "name": h.name ?? "", "sshAlias": h.sshAlias ?? "", "hsrPath": h.hsrPath ?? "~/Home-Server-Runner",
-                     "readOnly": h.readOnly ?? false, "mode": h.mode ?? "auto" }
+                     "readOnly": h.readOnly ?? false, "mode": h.mode ?? "auto",
+                     "project": h.project ?? "", "region": h.region ?? "" }
         })
         confirmDestructive = s.confirmDestructive ?? true
         showToasts = s.showToasts ?? true
@@ -74,7 +75,8 @@ ColumnLayout {
 
     function addHost() {
         var copy = hostsLocal.slice()
-        copy.push({ "name": "", "sshAlias": "", "hsrPath": "~/Home-Server-Runner", "readOnly": false, "mode": "auto" })
+        copy.push({ "name": "", "sshAlias": "", "hsrPath": "~/Home-Server-Runner", "readOnly": false, "mode": "auto",
+                    "project": "", "region": "" })
         hostsLocal = copy
         saveSettings()
     }
@@ -175,19 +177,38 @@ ColumnLayout {
                                 model: [
                                     { "key": "auto", "name": pluginApi?.tr("settings.modeAuto") ?? "Auto" },
                                     { "key": "docker", "name": pluginApi?.tr("settings.modeDocker") ?? "Docker" },
-                                    { "key": "hsr", "name": pluginApi?.tr("settings.modeHsr") ?? "Home-Server-Runner" }
+                                    { "key": "hsr", "name": pluginApi?.tr("settings.modeHsr") ?? "Home-Server-Runner" },
+                                    { "key": "gcloud", "name": pluginApi?.tr("settings.modeGcloud") ?? "Cloud Run (gcloud)" }
                                 ]
                                 currentKey: modelData.mode ?? "auto"
                                 onSelected: (key) => root.updateHost(index, "mode", key)
                             }
                         }
-                        // Chemin Home-Server-Runner : utile seulement quand HSR peut être sondé/utilisé.
+                        // Chemin Home-Server-Runner : utile seulement en mode auto/hsr.
                         NTextInput {
                             Layout.fillWidth: true
-                            visible: (modelData.mode ?? "auto") !== "docker"
+                            visible: (modelData.mode ?? "auto") === "auto" || (modelData.mode ?? "auto") === "hsr"
                             text: modelData.hsrPath
                             placeholderText: pluginApi?.tr("settings.pathPlaceholder")
                             onEditingFinished: root.updateHost(index, "hsrPath", text)
+                        }
+                        // Projet / région GCP : mode gcloud uniquement (région vide = toutes).
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: (modelData.mode ?? "auto") === "gcloud"
+                            spacing: Style.marginS
+                            NTextInput {
+                                Layout.fillWidth: true
+                                text: modelData.project ?? ""
+                                placeholderText: pluginApi?.tr("settings.projectPlaceholder")
+                                onEditingFinished: root.updateHost(index, "project", text)
+                            }
+                            NTextInput {
+                                Layout.fillWidth: true
+                                text: modelData.region ?? ""
+                                placeholderText: pluginApi?.tr("settings.regionPlaceholder")
+                                onEditingFinished: root.updateHost(index, "region", text)
+                            }
                         }
                         NToggle {
                             Layout.fillWidth: true

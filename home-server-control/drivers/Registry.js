@@ -2,18 +2,21 @@
 .import "Shared.js" as Shared
 .import "HsrDriver.js" as Hsr
 .import "DockerDriver.js" as Docker
+.import "GcloudDriver.js" as Gcloud
 
 // Sélection du driver selon le mode résolu d'un hôte.
-// Modes : "hsr" | "docker" (le mode "auto" est résolu en amont par Main via probeCommand).
-// Futur : ajouter "gcloud" ici + son GcloudDriver, sans toucher au reste.
+// Modes : "hsr" | "docker" | "gcloud" (le mode "auto" est résolu en amont par Main via probeCommand).
 
 function pickDriver(mode) {
     if (mode === "hsr") return Hsr
+    if (mode === "gcloud") return Gcloud
     return Docker          // défaut sûr (et cible du fallback public)
 }
 
 function capabilitiesFor(mode) {
-    return (mode === "hsr") ? Hsr.capabilities : Docker.capabilities
+    if (mode === "hsr") return Hsr.capabilities
+    if (mode === "gcloud") return Gcloud.capabilities
+    return Docker.capabilities
 }
 
 // Sonde d'auto-détection (driver-agnostique) : présence de manager.py à hsrPath.

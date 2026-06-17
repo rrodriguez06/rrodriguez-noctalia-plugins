@@ -21,12 +21,16 @@ Item {
     property bool viewingLogs: false
     readonly property bool readOnly: main ? main.isReadOnly() : false
     readonly property bool confirmDestructive: pluginApi?.pluginSettings?.confirmDestructive ?? true
-    // Capacités du driver de l'hôte actif (docker masque les features git-aware).
-    // Dépendances explicites du binding : resolvedMode (résolution de la sonde auto) et
-    // activeHostIndex (changement d'hôte) → ré-évaluation correcte dans les deux cas.
-    readonly property var caps: (main && main.resolvedMode,
+    // Capacités du driver de l'hôte actif (docker masque le git-aware ; gcloud = lecture seule).
+    // Dépendances explicites du binding : resolvedMode (sonde auto), resolvedCaps (caps dynamiques
+    // gcloud) et activeHostIndex (changement d'hôte) → ré-évaluation correcte dans tous les cas.
+    readonly property var caps: (main && main.resolvedMode, main && main.resolvedCaps,
                                  pluginApi?.pluginSettings?.activeHostIndex,
                                  main ? main.capabilities() : ({}))
+    // Identité du credential (gcloud) : { account, writable, kind } ou null.
+    readonly property var identity: (main && main.resolvedIdentity,
+                                      pluginApi?.pluginSettings?.activeHostIndex,
+                                      main ? main.activeIdentity() : null)
 
     // Jauges liées à hostInfo (réassigné à chaque poll) : MAJ fluide, sans recréer d'éléments.
     readonly property real ramPct: (main && main.hostInfo && main.hostInfo.mem && main.hostInfo.mem.usedPct != null)
@@ -111,7 +115,7 @@ Item {
                         NIconButton {
                             icon: "refresh"
                             tooltipText: pluginApi?.tr("panel.refresh")
-                            onClicked: if (root.main) root.main.pollStatus(true)
+                            onClicked: if (root.main) root.main.refreshNow()
                         }
                         NIconButton {
                             icon: "terminal-2"
@@ -175,6 +179,24 @@ Item {
                             }
                             pointSize: Style.fontSizeXS
                             color: Color.mOnSurfaceVariant
+                        }
+                        // Badge identité (gcloud) : compte connecté + niveau d'accès.
+                        RowLayout {
+                            visible: !!root.identity
+                            spacing: Style.marginXS
+                            NIcon {
+                                icon: (root.identity && root.identity.writable) ? "lock-open" : "lock"
+                                color: (root.identity && root.identity.writable) ? "#3fb950" : Color.mOnSurfaceVariant
+                            }
+                            NText {
+                                text: (root.identity ? root.identity.account : "")
+                                    + " · " + ((root.identity && root.identity.writable)
+                                        ? (pluginApi?.tr("panel.writable") ?? "writable")
+                                        : (pluginApi?.tr("panel.readOnlyConn") ?? "read-only"))
+                                pointSize: Style.fontSizeXS
+                                color: Color.mOnSurfaceVariant
+                                elide: Text.ElideRight
+                            }
                         }
                     }
                 }
@@ -370,6 +392,7 @@ Item {
                                             onClicked: if (root.main && svcRow.url0) root.main.openUrl(svcRow.url0)
                                         }
                                         NIconButton {
+                                            visible: root.caps.logs !== false
                                             icon: "file-text"
                                             tooltipText: pluginApi?.tr("panel.logs")
                                             enabled: svcRow.containerName.length > 0
@@ -380,7 +403,7 @@ Item {
                                             }
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly && svcRow.status === "running"
+                                            visible: !root.readOnly && root.caps.restart && svcRow.status === "running"
                                             icon: svcRow.confirming === "restart" ? "alert-triangle" : "rotate"
                                             tooltipText: svcRow.confirming === "restart" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.restart")
                                             colorFg: svcRow.confirming === "restart" ? Color.mError : Color.mPrimary
@@ -388,7 +411,7 @@ Item {
                                             onClicked: svcRow.act("restart")
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly && svcRow.status === "running"
+                                            visible: !root.readOnly && root.caps.stop && svcRow.status === "running"
                                             icon: svcRow.confirming === "stop" ? "alert-triangle" : "player-stop"
                                             tooltipText: svcRow.confirming === "stop" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.stop")
                                             colorFg: svcRow.confirming === "stop" ? Color.mError : Color.mPrimary
@@ -396,14 +419,14 @@ Item {
                                             onClicked: svcRow.act("stop")
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly && svcRow.status !== "running"
+                                            visible: !root.readOnly && root.caps.start && svcRow.status !== "running"
                                             icon: "player-play"
                                             tooltipText: pluginApi?.tr("panel.start")
                                             colorFgHover: Color.mPrimary
                                             onClicked: if (root.main) root.main.serviceAction(card.pid, svcRow.name, "start")
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly
+                                            visible: !root.readOnly && root.caps.shell
                                             icon: "terminal"
                                             tooltipText: pluginApi?.tr("panel.shell")
                                             enabled: svcRow.containerName.length > 0

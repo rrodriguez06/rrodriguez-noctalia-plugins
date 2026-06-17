@@ -23,14 +23,14 @@
     {
       "id": "home-server-control",
       "name": "Home Server Control",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "author": "rrodriguez06",
       "license": "MIT",
-      "description": "Monitore et pilote des services Docker, en local ou via SSH. Intégration optionnelle Home-Server-Runner (déploiements git-aware).",
+      "description": "Monitore et pilote des services Docker (local/SSH) et Cloud Run (gcloud). Intégration optionnelle Home-Server-Runner (déploiements git-aware).",
       "tags": ["Bar", "Panel", "Launcher", "ControlCenter", "Utility"],
       "official": false,
       "minNoctaliaVersion": "4.5.0",
-      "lastUpdated": "2026-06-17T12:00:00Z",
+      "lastUpdated": "2026-06-17T18:00:00Z",
       "entryPoints": {
         "main": "Main.qml",
         "barWidget": "BarWidget.qml",

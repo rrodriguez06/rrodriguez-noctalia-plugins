@@ -6,6 +6,7 @@ import qs.Services.UI
 import "drivers/Shared.js" as Shared
 import "drivers/HsrDriver.js" as Hsr
 import "drivers/DockerDriver.js" as Docker
+import "drivers/GcloudDriver.js" as Gcloud
 import "drivers/Registry.js" as Registry
 
 // Couche logique non-visuelle. Pilote un home server via un « driver » résolu par hôte :
@@ -27,6 +28,11 @@ Item {
 
     // Mode résolu par hôte (clé = alias SSH ou "__local__") : évite de re-sonder à chaque poll.
     property var resolvedMode: ({})
+    // Capacités résolues dynamiquement par hôte (ex. gcloud : SA=lecture seule vs user=inscriptible).
+    // Si absent, capabilities() retombe sur le statique du driver.
+    property var resolvedCaps: ({})
+    // Identité résolue par hôte (gcloud) : { account, writable, kind } — pour l'affichage du badge.
+    property var resolvedIdentity: ({})
 
     // Résumé pour la pastille de barre.
     property int barDown: 0
@@ -77,17 +83,31 @@ Item {
         return (h && h.sshAlias && String(h.sshAlias).trim()) ? String(h.sshAlias).trim() : "__local__"
     }
 
-    // Mode effectif : explicite (hsr/docker) ou résolu par la sonde (auto -> docker par défaut).
+    // Mode effectif : explicite (hsr/docker/gcloud) ou résolu par la sonde (auto -> docker par défaut).
     function effectiveMode(h) {
         if (!h) return "docker"
         var requested = h.mode || "auto"
-        if (requested === "hsr" || requested === "docker") return requested
+        if (requested === "hsr" || requested === "docker" || requested === "gcloud") return requested
         return root.resolvedMode[root.hostKey(h)] || "docker"
     }
 
-    function driverFor(h) { return (root.effectiveMode(h) === "hsr") ? Hsr : Docker }
+    function driverFor(h) {
+        var m = root.effectiveMode(h)
+        if (m === "hsr") return Hsr
+        if (m === "gcloud") return Gcloud
+        return Docker
+    }
 
-    function capabilities() { return Registry.capabilitiesFor(root.effectiveMode(root.activeHost())) }
+    // Capacités : résolues dynamiquement par hôte si disponible (gcloud), sinon statique du driver.
+    function capabilities() {
+        var h = root.activeHost()
+        var key = root.hostKey(h)
+        if (root.resolvedCaps[key]) return root.resolvedCaps[key]
+        return Registry.capabilitiesFor(root.effectiveMode(h))
+    }
+
+    // Identité du credential actif (gcloud) pour l'affichage : { account, writable, kind } ou null.
+    function activeIdentity() { return root.resolvedIdentity[root.hostKey(root.activeHost())] || null }
 
     // Sonde auto : résout le mode de l'hôte puis re-poll. Renvoie false tant que la sonde tourne
     // (les appelants — pollStatus/pollHostInfo — diffèrent ; onExited relance le poll).
@@ -117,6 +137,51 @@ Item {
             root.pollStatus(true)
             root.pollHostInfo()
         }
+    }
+
+    // Sonde de capacités NON-BLOQUANTE (gcloud) : le driver est déjà connu, la liste se charge tout
+    // de suite ; les caps/identité s'allument après. No-op si le driver n'expose pas identityProbeCommand.
+    function ensureCaps(h) {
+        if (!h) return
+        var drv = root.driverFor(h)
+        if (!drv.identityProbeCommand) return
+        var k = root.hostKey(h)
+        if (root.resolvedCaps[k]) return
+        if (capsProc.running && capsProc.forKey === k) return
+        capsProc.running = false
+        capsProc.forKey = k
+        capsProc._driver = drv
+        capsProc._host = h
+        capsProc.command = drv.identityProbeCommand(h, root.sshBase)
+        capsProc.running = true
+    }
+
+    Process {
+        id: capsProc
+        property string forKey: ""
+        property var _driver: null
+        property var _host: null
+        stdout: StdioCollector { id: capsOut }
+        onExited: code => {
+            if (!capsProc._driver) return
+            var res = capsProc._driver.capsFromIdentity(capsOut.text || "", capsProc._host)
+            var rc = Object.assign({}, root.resolvedCaps); rc[capsProc.forKey] = res.caps
+            root.resolvedCaps = rc
+            var ri = Object.assign({}, root.resolvedIdentity); ri[capsProc.forKey] = res.identity
+            root.resolvedIdentity = ri
+        }
+    }
+
+    // Refresh « dur » : ré-évalue aussi l'identité/caps de l'hôte actif (ex. après un gcloud auth login).
+    function refreshNow() {
+        var h = root.activeHost()
+        if (h) {
+            var k = root.hostKey(h)
+            var rc = Object.assign({}, root.resolvedCaps); delete rc[k]; root.resolvedCaps = rc
+            var ri = Object.assign({}, root.resolvedIdentity); delete ri[k]; root.resolvedIdentity = ri
+        }
+        root.pollStatus(true)
+        root.pollHostInfo()
     }
 
     // ── Lookups schéma normalisé ─────────────────────────────────────────────
@@ -172,6 +237,7 @@ Item {
         var h = root.activeHost()
         if (!h) { root.reachable = false; return }
         if (!root.ensureResolved(h)) return
+        root.ensureCaps(h)                 // résolution identité/caps (gcloud), non-bloquante
         var drv = root.driverFor(h)
         statusProc._driver = drv
         statusProc.running = false
@@ -369,6 +435,7 @@ Item {
 
     function serviceAction(pid, svc, action) {
         if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
+        if (!root.capabilities()[action]) { ToastService.showError("Action indisponible pour ce backend"); return }
         var h = root.activeHost(); if (!h) return
         var drv = root.driverFor(h)
         var container = root._containerFor(pid, svc)
@@ -397,6 +464,7 @@ Item {
     // Relance TOUS les conteneurs d'un projet (sans rebuild).
     function projectAction(pid, action) {
         if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
+        if (!root.capabilities().restartAll) { ToastService.showError("Action indisponible pour ce backend"); return }
         var h = root.activeHost(); if (!h) return
         var drv = root.driverFor(h)
         var containers = root._containersOf(pid)
@@ -450,7 +518,10 @@ Item {
         var h = root.activeHost()
         if (!h || !container) return
         var drv = root.driverFor(h)
-        Quickshell.execDetached(root._terminalArgs().concat(drv.shellCommand(h, container)))
+        if (!drv.shellCommand) return
+        var sc = drv.shellCommand(h, container)
+        if (!sc) { ToastService.showError("Shell indisponible pour ce backend"); return }
+        Quickshell.execDetached(root._terminalArgs().concat(sc))
     }
 
     // « Ouvrir un shell sur l'hôte » : terminal local simple, ou ssh -t en distant.
@@ -545,7 +616,7 @@ Item {
             if (root.pluginApi)
                 root.pluginApi.withCurrentScreen(s => root.pluginApi.togglePanel(s))
         }
-        function refresh() { root.pollStatus(true) }
+        function refresh() { root.refreshNow() }
         function selectHost(i: int) { root.selectHost(i) }
         function restart(pid: string, svc: string) { root.serviceAction(pid, svc, "restart") }
         function stop(pid: string, svc: string) { root.serviceAction(pid, svc, "stop") }
