@@ -28,7 +28,8 @@
         "readOnly": "lecture seule",
         "load": "charge",
         "uptime": "uptime",
-        "closeLogs": "Fermer les logs"
+        "closeLogs": "Fermer les logs",
+        "openInTerminal": "Ouvrir les logs dans un terminal"
     },
     "launcher": {
         "status": "État du serveur",

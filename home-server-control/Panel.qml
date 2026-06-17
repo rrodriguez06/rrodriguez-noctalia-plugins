@@ -22,6 +22,12 @@ Item {
     readonly property bool readOnly: main ? main.isReadOnly() : false
     readonly property bool confirmDestructive: pluginApi?.pluginSettings?.confirmDestructive ?? true
 
+    // Jauges liées à hostInfo (réassigné à chaque poll) : MAJ fluide, sans recréer d'éléments.
+    readonly property real ramPct: (main && main.hostInfo && main.hostInfo.mem && main.hostInfo.mem.usedPct != null)
+                                   ? main.hostInfo.mem.usedPct : -1
+    readonly property real diskPct: (main && main.hostInfo && main.hostInfo.disks && main.hostInfo.disks.length
+                                     && main.hostInfo.disks[0].usedPct != null) ? main.hostInfo.disks[0].usedPct : -1
+
     // Liste d'hôtes pour le NComboBox.
     function hostModel() {
         var hs = pluginApi?.pluginSettings?.hosts ?? []
@@ -33,10 +39,10 @@ Item {
     readonly property string activeHostKey: String(pluginApi?.pluginSettings?.activeHostIndex ?? 0)
 
     // Couleurs d'état (indicateurs : couleurs littérales volontaires).
-    function dotColor(s) {
-        if (!s || s.status !== "running") return "#f85149"
-        if (s.health === "unhealthy") return "#f85149"
-        if (s.health === "starting") return "#d29922"
+    function dotColor(status, health) {
+        if (status !== "running") return "#f85149"
+        if (health === "unhealthy") return "#f85149"
+        if (health === "starting") return "#d29922"
         return "#3fb950"
     }
 
@@ -108,43 +114,46 @@ Item {
                         }
                     }
 
-                    // Jauges host-info (RAM / disque) + charge + uptime.
+                    // Jauges host-info (RAM / disque) + charge + uptime — liées à hostInfo,
+                    // donc mises à jour en douceur sans recréer d'éléments (pas de blink).
                     RowLayout {
                         Layout.fillWidth: true
                         visible: root.main && root.main.reachable && root.main.hostInfo && root.main.hostInfo.hostname
                         spacing: Style.marginM
 
-                        Repeater {
-                            model: {
-                                if (!root.main || !root.main.hostInfo) return []
-                                var hi = root.main.hostInfo
-                                var out = []
-                                if (hi.mem && hi.mem.usedPct !== null && hi.mem.usedPct !== undefined)
-                                    out.push({ "label": "RAM", "pct": hi.mem.usedPct })
-                                if (hi.disks && hi.disks.length && hi.disks[0].usedPct !== null)
-                                    out.push({ "label": "Disque", "pct": hi.disks[0].usedPct })
-                                return out
+                        ColumnLayout {
+                            visible: root.ramPct >= 0
+                            Layout.preferredWidth: 110 * Style.uiScaleRatio
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                NText { text: "RAM"; pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant; Layout.fillWidth: true }
+                                NText { text: Math.round(root.ramPct) + "%"; pointSize: Style.fontSizeXS }
                             }
-                            delegate: ColumnLayout {
-                                required property var modelData
-                                Layout.preferredWidth: 110 * Style.uiScaleRatio
-                                spacing: 2
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    NText { text: modelData.label; pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant; Layout.fillWidth: true }
-                                    NText { text: Math.round(modelData.pct) + "%"; pointSize: Style.fontSizeXS }
-                                }
+                            Rectangle {
+                                Layout.fillWidth: true; height: 4; radius: 2; color: Color.mSurface
                                 Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 4
-                                    radius: 2
-                                    color: Color.mSurface
-                                    Rectangle {
-                                        width: parent.width * Math.max(0, Math.min(1, modelData.pct / 100))
-                                        height: parent.height
-                                        radius: parent.radius
-                                        color: modelData.pct >= 90 ? "#f85149" : (modelData.pct >= 75 ? "#d29922" : Color.mPrimary)
-                                    }
+                                    width: parent.width * Math.max(0, Math.min(1, root.ramPct / 100))
+                                    height: parent.height; radius: parent.radius
+                                    color: root.ramPct >= 90 ? "#f85149" : (root.ramPct >= 75 ? "#d29922" : Color.mPrimary)
+                                }
+                            }
+                        }
+                        ColumnLayout {
+                            visible: root.diskPct >= 0
+                            Layout.preferredWidth: 110 * Style.uiScaleRatio
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                NText { text: "Disque"; pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant; Layout.fillWidth: true }
+                                NText { text: Math.round(root.diskPct) + "%"; pointSize: Style.fontSizeXS }
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true; height: 4; radius: 2; color: Color.mSurface
+                                Rectangle {
+                                    width: parent.width * Math.max(0, Math.min(1, root.diskPct / 100))
+                                    height: parent.height; radius: parent.radius
+                                    color: root.diskPct >= 90 ? "#f85149" : (root.diskPct >= 75 ? "#d29922" : Color.mPrimary)
                                 }
                             }
                         }
@@ -199,7 +208,8 @@ Item {
                         required property int serviceCount
                         required property int downCount
                         required property int behind
-                        property bool expanded: true
+                        // Replié par défaut ; l'état est mémorisé par projet dans Main (survit aux polls).
+                        property bool expanded: root.main ? root.main.isExpanded(card.pid) : false
 
                         width: ListView.view ? ListView.view.width : 0
                         implicitHeight: cardCol.implicitHeight + Style.marginS * 2
@@ -219,7 +229,7 @@ Item {
 
                                 NIconButton {
                                     icon: card.expanded ? "chevron-down" : "chevron-right"
-                                    onClicked: card.expanded = !card.expanded
+                                    onClicked: if (root.main) root.main.toggleExpanded(card.pid)
                                 }
                                 NText {
                                     text: card.pid
@@ -267,12 +277,18 @@ Item {
                                 spacing: Style.marginXS
 
                                 Repeater {
-                                    // On lit statusData dans l'expression pour que QML retrace la dépendance
-                                    // et reconstruise les lignes à chaque poll (l'opérateur virgule renvoie servicesOf).
-                                    model: card.expanded && root.main ? (root.main.statusData, root.main.servicesOf(card.pid)) : []
+                                    // Modèle = ListModel par projet, MAJ en place côté Main : les lignes
+                                    // ne sont pas recréées au poll (pas de blink, état « confirmation » conservé).
+                                    model: root.main ? root.main.svcModelFor(card.pid) : null
                                     delegate: RowLayout {
                                         id: svcRow
-                                        required property var modelData
+                                        required property string name
+                                        required property string containerName
+                                        required property string status
+                                        required property string health
+                                        required property int repoBehind
+                                        required property string url0
+                                        required property bool hasUrl
                                         property string confirming: ""
                                         Layout.fillWidth: true
                                         Layout.leftMargin: Style.marginS
@@ -287,22 +303,22 @@ Item {
                                                 return
                                             }
                                             svcRow.confirming = ""
-                                            root.main.serviceAction(card.pid, modelData.name, action)
+                                            root.main.serviceAction(card.pid, svcRow.name, action)
                                         }
 
                                         Rectangle {
                                             implicitWidth: 9; implicitHeight: 9; radius: 5
-                                            color: root.dotColor(modelData)
+                                            color: root.dotColor(svcRow.status, svcRow.health)
                                         }
                                         NText {
-                                            text: modelData.name
+                                            text: svcRow.name
                                             pointSize: Style.fontSizeS
                                             Layout.preferredWidth: 130 * Style.uiScaleRatio
                                             elide: Text.ElideRight
                                         }
                                         NText {
-                                            text: modelData.status + (modelData.health && modelData.health !== "none" ? " · " + modelData.health : "")
-                                                + (modelData.repoBehind > 0 ? "  ↑" + modelData.repoBehind : "")
+                                            text: svcRow.status + (svcRow.health && svcRow.health !== "none" ? " · " + svcRow.health : "")
+                                                + (svcRow.repoBehind > 0 ? "  ↑" + svcRow.repoBehind : "")
                                             pointSize: Style.fontSizeXS
                                             color: Color.mOnSurfaceVariant
                                             Layout.fillWidth: true
@@ -310,23 +326,23 @@ Item {
                                         }
 
                                         NIconButton {
-                                            visible: (modelData.urls && modelData.urls.length > 0)
+                                            visible: svcRow.hasUrl
                                             icon: "external-link"
-                                            tooltipText: (modelData.urls && modelData.urls.length) ? modelData.urls[0] : ""
-                                            onClicked: if (root.main && modelData.urls && modelData.urls.length) root.main.openUrl(modelData.urls[0])
+                                            tooltipText: svcRow.url0
+                                            onClicked: if (root.main && svcRow.url0) root.main.openUrl(svcRow.url0)
                                         }
                                         NIconButton {
                                             icon: "file-text"
                                             tooltipText: pluginApi?.tr("panel.logs")
-                                            enabled: !!modelData.containerName
+                                            enabled: svcRow.containerName.length > 0
                                             onClicked: {
                                                 if (!root.main) return
-                                                root.main.streamLogs(modelData.name, modelData.containerName)
+                                                root.main.streamLogs(svcRow.name, svcRow.containerName)
                                                 root.viewingLogs = true
                                             }
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly && modelData.status === "running"
+                                            visible: !root.readOnly && svcRow.status === "running"
                                             icon: svcRow.confirming === "restart" ? "alert-triangle" : "rotate"
                                             tooltipText: svcRow.confirming === "restart" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.restart")
                                             colorFg: svcRow.confirming === "restart" ? Color.mError : Color.mPrimary
@@ -334,7 +350,7 @@ Item {
                                             onClicked: svcRow.act("restart")
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly && modelData.status === "running"
+                                            visible: !root.readOnly && svcRow.status === "running"
                                             icon: svcRow.confirming === "stop" ? "alert-triangle" : "player-stop"
                                             tooltipText: svcRow.confirming === "stop" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.stop")
                                             colorFg: svcRow.confirming === "stop" ? Color.mError : Color.mPrimary
@@ -342,18 +358,18 @@ Item {
                                             onClicked: svcRow.act("stop")
                                         }
                                         NIconButton {
-                                            visible: !root.readOnly && modelData.status !== "running"
+                                            visible: !root.readOnly && svcRow.status !== "running"
                                             icon: "player-play"
                                             tooltipText: pluginApi?.tr("panel.start")
                                             colorFgHover: Color.mPrimary
-                                            onClicked: if (root.main) root.main.serviceAction(card.pid, modelData.name, "start")
+                                            onClicked: if (root.main) root.main.serviceAction(card.pid, svcRow.name, "start")
                                         }
                                         NIconButton {
                                             visible: !root.readOnly
                                             icon: "terminal"
                                             tooltipText: pluginApi?.tr("panel.shell")
-                                            enabled: !!modelData.containerName
-                                            onClicked: if (root.main) root.main.openShell(modelData.containerName)
+                                            enabled: svcRow.containerName.length > 0
+                                            onClicked: if (root.main) root.main.openShell(svcRow.containerName)
                                         }
                                     }
                                 }
@@ -396,6 +412,12 @@ Item {
                     spacing: Style.marginS
                     NIcon { icon: "file-text"; color: Color.mPrimary }
                     NText { text: root.main ? root.main.logTitle : ""; pointSize: Style.fontSizeL; Layout.fillWidth: true; elide: Text.ElideRight }
+                    NIconButton {
+                        icon: "external-link"
+                        tooltipText: pluginApi?.tr("panel.openInTerminal")
+                        enabled: root.main && root.main.logContainer.length > 0
+                        onClicked: if (root.main) root.main.openLogsInTerminal()
+                    }
                     NIconButton {
                         icon: "x"
                         tooltipText: pluginApi?.tr("panel.closeLogs")

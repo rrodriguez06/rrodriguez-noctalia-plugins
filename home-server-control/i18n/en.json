@@ -28,7 +28,8 @@
         "readOnly": "read-only",
         "load": "load",
         "uptime": "uptime",
-        "closeLogs": "Close logs"
+        "closeLogs": "Close logs",
+        "openInTerminal": "Open logs in a terminal"
     },
     "launcher": {
         "status": "Server status",

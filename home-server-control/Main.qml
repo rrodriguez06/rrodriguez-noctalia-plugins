@@ -16,6 +16,8 @@ Item {
     property var hostInfo: ({})           // objet `host-info` (hôte actif)
     property var planByPid: ({})          // pid -> plan d'`update --check-only`
     property bool reachable: true         // dernier poll de l'hôte actif a-t-il réussi ?
+    property var expandedByPid: ({})      // pid -> bool : état déplié mémorisé (replié par défaut)
+    property var svcModels: ({})          // pid -> ListModel des services (MAJ en place, anti-blink)
 
     // Résumé pour la pastille de barre.
     property int barDown: 0
@@ -29,6 +31,7 @@ Item {
     // Logs en direct (overlay du Panel).
     property ListModel logModel: ListModel {}
     property string logTitle: ""
+    property string logContainer: ""      // conteneur en cours de stream (pour « ouvrir en grand »)
 
     property bool panelOpen: false
     property var _prevStates: ({})        // watchdog : dernier état connu par "pid/svc"
@@ -64,7 +67,9 @@ Item {
 
     function remoteMgr(h, args) {
         var q = args.map(root.shq).join(" ")
-        return "python3 " + (h.hsrPath || "~/Home-Server-Runner") + "/manager.py " + q + " --json"
+        // `cd` dans le repo : manager.py lit config.yaml / projects en chemins relatifs.
+        // (Le ~ est développé par le shell distant car laissé non quoté.)
+        return "cd " + (h.hsrPath || "~/Home-Server-Runner") + " && python3 manager.py " + q + " --json"
     }
 
     function sshArgv(h, remoteStr) {
@@ -119,7 +124,6 @@ Item {
 
     function applyStatus(arr) {
         root.statusData = arr
-        root.projectsModel.clear()
         var down = 0, unhealthy = 0, total = 0, behind = 0
         for (var i = 0; i < arr.length; i++) {
             var p = arr[i]
@@ -134,15 +138,61 @@ Item {
             var repos = p.repos || []
             for (var k = 0; k < repos.length; k++) pbehind += (repos[k].behind || 0)
             behind += pbehind
-            root.projectsModel.append({
+            var row = {
                 "pid": p.id, "mode": p.mode || "",
                 "serviceCount": svcs.length, "downCount": pdown,
                 "unhealthyCount": punhealthy, "behind": pbehind
-            })
+            }
+            // MAJ EN PLACE (pas de clear) : les délégués persistent -> aucun blink,
+            // l'état déplié (mémorisé par pid) et l'état « confirmation » des lignes sont conservés.
+            if (i < root.projectsModel.count) root.projectsModel.set(i, row)
+            else root.projectsModel.append(row)
+            root._syncServiceModel(p.id, svcs)
         }
+        while (root.projectsModel.count > arr.length)
+            root.projectsModel.remove(root.projectsModel.count - 1)
+
         root.barDown = down; root.barUnhealthy = unhealthy
         root.barTotal = total; root.barBehind = behind
         root.reachable = true
+    }
+
+    // ListModel de services par projet, mis à jour EN PLACE (set/append/remove) : les lignes
+    // ne sont jamais recréées au poll -> pas de blink, pas de perte d'état de confirmation.
+    function svcModelFor(pid) {
+        if (!root.svcModels[pid])
+            root.svcModels[pid] = Qt.createQmlObject('import QtQuick; ListModel {}', root)
+        return root.svcModels[pid]
+    }
+
+    function _syncServiceModel(pid, svcs) {
+        var m = root.svcModelFor(pid)
+        for (var i = 0; i < svcs.length; i++) {
+            var s = svcs[i]
+            var urls = s.urls || []
+            var row = {
+                "name": s.name || "",
+                "containerName": s.containerName || "",
+                "status": s.status || "",
+                "health": s.health || "none",
+                "build": s.build || "",
+                "repoBehind": s.repoBehind || 0,
+                "ports": (s.ports || []).join(", "),
+                "url0": urls.length ? urls[0] : "",
+                "hasUrl": urls.length > 0
+            }
+            if (i < m.count) m.set(i, row)
+            else m.append(row)
+        }
+        while (m.count > svcs.length) m.remove(m.count - 1)
+    }
+
+    // État déplié/replié mémorisé par projet (survit aux polls et à la réouverture du panneau).
+    function isExpanded(pid) { return root.expandedByPid[pid] === true }
+    function toggleExpanded(pid) {
+        var m = root.expandedByPid
+        m[pid] = !(m[pid] === true)
+        root.expandedByPid = Object.assign({}, m)
     }
 
     // ── Watchdog : notifie quand un service tombe ────────────────────────────
@@ -291,11 +341,21 @@ Item {
         logProc.running = false
         root.logModel.clear()
         root.logTitle = svc
+        root.logContainer = container
         logProc.command = root.sshArgv(h, "docker logs -f --tail " + tail + " " + root.shq(container))
         logProc.running = true
     }
 
     function stopLogs() { logProc.running = false }
+
+    // Ouvre les logs « en grand » dans un vrai terminal (suit en direct, scrollback complet).
+    function openLogsInTerminal() {
+        var h = root.activeHost()
+        if (!h || !root.logContainer) return
+        var tail = root.settings()?.logTailLines ?? 200
+        Quickshell.execDetached(root._terminalArgs().concat(
+            ["ssh", "-t", h.sshAlias, "docker logs -f --tail " + tail + " " + root.logContainer]))
+    }
 
     function appendLog(line) {
         root.logModel.append({ "line": line })
@@ -360,6 +420,8 @@ Item {
         root._prevStates = ({})   // reset du watchdog au changement d'hôte
         root.statusData = []
         root.projectsModel.clear()
+        root.svcModels = ({})         // les anciens ListModel deviennent collectables
+        root.expandedByPid = ({})     // repli par défaut sur le nouvel hôte
         root.hostInfo = ({})
         root.pollStatus(true)
         root.pollHostInfo()
