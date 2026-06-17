@@ -428,6 +428,8 @@ Item {
         visible: opacity > 0
         opacity: root.viewingLogs ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
+        // À l'ouverture de l'overlay : on (re)suit la fin du flux.
+        onVisibleChanged: if (visible) { logList.followTail = true; Qt.callLater(logList.positionViewAtEnd) }
 
         ColumnLayout {
             anchors.fill: parent
@@ -460,28 +462,62 @@ Item {
             NBox {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                NListView {
+
+                ListView {
                     id: logList
                     anchors.fill: parent
                     anchors.margins: Style.marginS
                     clip: true
                     model: root.main ? root.main.logModel : null
+                    // Pas d'overscroll (sinon on scrolle « sous » la dernière ligne + flicker).
+                    boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
+                    cacheBuffer: 400
+
+                    // Suivi du bas du flux, UNIQUEMENT tant que l'utilisateur est déjà en bas.
+                    property bool followTail: true
+                    property bool userInteracting: false
+
+                    onMovementStarted: userInteracting = true
+                    onMovementEnded: { userInteracting = false; followTail = atYEnd }
+                    onDraggingChanged: if (dragging) followTail = false
+
+                    // Reste collé en bas pendant que le contenu grandit (et que les lignes
+                    // wrappées prennent leur hauteur finale) — sauf si l'utilisateur scrolle.
+                    onContentHeightChanged: if (followTail && !userInteracting) positionViewAtEnd()
+                    onCountChanged: if (followTail && !userInteracting) Qt.callLater(positionViewAtEnd)
+
+                    // Nouveau service de logs -> on resuit la fin.
+                    Connections {
+                        target: root.main
+                        function onLogTitleChanged() {
+                            logList.followTail = true
+                            Qt.callLater(logList.positionViewAtEnd)
+                        }
+                    }
+
                     delegate: NText {
                         required property string line
-                        width: ListView.view ? ListView.view.width : 0
+                        width: logList.width
                         text: line
                         pointSize: Style.fontSizeXS
                         font.family: "monospace"
                         wrapMode: Text.WrapAnywhere
+                        color: Color.mOnSurface
                     }
                 }
-            }
-        }
 
-        // Auto-scroll vers le bas à chaque nouvelle ligne.
-        Connections {
-            target: root.main ? root.main.logModel : null
-            function onCountChanged() { logList.positionViewAtEnd() }
+                // Revenir en bas quand on a scrollé vers le haut.
+                NIconButton {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Style.marginM
+                    visible: !logList.followTail
+                    icon: "chevron-down"
+                    tooltipText: pluginApi?.tr("panel.scrollBottom")
+                    onClicked: { logList.followTail = true; logList.positionViewAtEnd() }
+                }
+            }
         }
     }
 }

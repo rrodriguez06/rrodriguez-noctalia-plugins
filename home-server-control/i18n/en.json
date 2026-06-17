@@ -30,7 +30,8 @@
         "load": "load",
         "uptime": "uptime",
         "closeLogs": "Close logs",
-        "openInTerminal": "Open logs in a terminal"
+        "openInTerminal": "Open logs in a terminal",
+        "scrollBottom": "Back to bottom"
     },
     "launcher": {
         "status": "Server status",

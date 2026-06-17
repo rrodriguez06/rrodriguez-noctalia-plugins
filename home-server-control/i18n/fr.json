@@ -30,7 +30,8 @@
         "load": "charge",
         "uptime": "uptime",
         "closeLogs": "Fermer les logs",
-        "openInTerminal": "Ouvrir les logs dans un terminal"
+        "openInTerminal": "Ouvrir les logs dans un terminal",
+        "scrollBottom": "Revenir en bas"
     },
     "launcher": {
         "status": "État du serveur",

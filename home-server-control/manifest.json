@@ -1,7 +1,7 @@
 {
   "id": "home-server-control",
   "name": "Home Server Control",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "minNoctaliaVersion": "4.5.0",
   "author": "rrodriguez06",
   "license": "MIT",
