@@ -327,6 +327,14 @@ Item {
                       "Déploiement de « " + pid + " »…", "✓ " + pid + " déployé")
     }
 
+    // Relance TOUS les containers d'un projet (docker compose restart, sans rebuild).
+    function projectAction(pid, action) {
+        if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
+        var h = root.activeHost(); if (!h) return
+        root.dispatch(root.mgrArgv(h, ["project", pid, action]),
+                      action + " « " + pid + " »…", "✓ " + pid + " : " + action)
+    }
+
     // ── Logs en direct ───────────────────────────────────────────────────────
     Process {
         id: logProc

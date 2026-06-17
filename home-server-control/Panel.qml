@@ -210,11 +210,26 @@ Item {
                         required property int behind
                         // Replié par défaut ; l'état est mémorisé par projet dans Main (survit aux polls).
                         property bool expanded: root.main ? root.main.isExpanded(card.pid) : false
+                        // Confirmation des actions projet : "" | "restart" | "full".
+                        property string confirmingProject: ""
 
                         width: ListView.view ? ListView.view.width : 0
                         implicitHeight: cardCol.implicitHeight + Style.marginS * 2
                         radius: Style.radiusS
                         color: Color.mSurfaceVariant
+
+                        Timer { id: projConfirmTimer; interval: 3000; onTriggered: card.confirmingProject = "" }
+                        function projAct(action) {
+                            if (root.confirmDestructive && card.confirmingProject !== action) {
+                                card.confirmingProject = action
+                                projConfirmTimer.restart()
+                                return
+                            }
+                            card.confirmingProject = ""
+                            if (!root.main) return
+                            if (action === "full") root.main.deployProject(card.pid, true)
+                            else root.main.projectAction(card.pid, "restart")
+                        }
 
                         ColumnLayout {
                             id: cardCol
@@ -267,6 +282,22 @@ Item {
                                     tooltipText: pluginApi?.tr("panel.update")
                                     colorFgHover: Color.mPrimary
                                     onClicked: if (root.main) root.main.updateProject(card.pid)
+                                }
+                                NIconButton {
+                                    visible: !root.readOnly
+                                    icon: card.confirmingProject === "restart" ? "alert-triangle" : "reload"
+                                    tooltipText: card.confirmingProject === "restart" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.restartAll")
+                                    colorFg: card.confirmingProject === "restart" ? Color.mError : Color.mPrimary
+                                    colorFgHover: Color.mPrimary
+                                    onClicked: card.projAct("restart")
+                                }
+                                NIconButton {
+                                    visible: !root.readOnly
+                                    icon: card.confirmingProject === "full" ? "alert-triangle" : "rocket"
+                                    tooltipText: card.confirmingProject === "full" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.deployFull")
+                                    colorFg: card.confirmingProject === "full" ? Color.mError : Color.mPrimary
+                                    colorFgHover: Color.mError
+                                    onClicked: card.projAct("full")
                                 }
                             }
 
