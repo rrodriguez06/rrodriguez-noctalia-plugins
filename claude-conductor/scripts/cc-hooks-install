@@ -10,7 +10,8 @@ DIR=$(dirname -- "$0")
 DIR=$(cd -- "$DIR" && pwd -P)
 HOOK="$DIR/cc-hook"
 SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-MARK="/claude-conductor/scripts/cc-hook"   # signature pour reconnaître nos entrées
+MARK="claude-conductor/scripts/cc-hook"   # signature pour reconnaître nos entrées (sans '/' initial :
+                                          # l'UI Noctalia installe dans <hash>:claude-conductor)
 
 command -v jq >/dev/null 2>&1 || { echo "jq introuvable" >&2; exit 2; }
 
