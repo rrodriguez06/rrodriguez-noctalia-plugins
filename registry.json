@@ -23,7 +23,7 @@
     {
       "id": "home-server-control",
       "name": "Home Server Control",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Monitore et pilote les services Docker d'un home server via SSH (Home-Server-Runner).",
