@@ -27,8 +27,10 @@ ColumnLayout {
         if (!pluginApi?.pluginSettings) return
         _loaded = false
         var s = pluginApi.pluginSettings
+        // Migration : les hôtes existants n'ont pas de `mode` -> défaut "auto" (re-persisté au save).
         hostsLocal = (s.hosts ?? []).map(function (h) {
-            return { "name": h.name ?? "", "sshAlias": h.sshAlias ?? "", "hsrPath": h.hsrPath ?? "~/Home-Server-Runner", "readOnly": h.readOnly ?? false }
+            return { "name": h.name ?? "", "sshAlias": h.sshAlias ?? "", "hsrPath": h.hsrPath ?? "~/Home-Server-Runner",
+                     "readOnly": h.readOnly ?? false, "mode": h.mode ?? "auto" }
         })
         confirmDestructive = s.confirmDestructive ?? true
         showToasts = s.showToasts ?? true
@@ -72,7 +74,7 @@ ColumnLayout {
 
     function addHost() {
         var copy = hostsLocal.slice()
-        copy.push({ "name": "", "sshAlias": "", "hsrPath": "~/Home-Server-Runner", "readOnly": false })
+        copy.push({ "name": "", "sshAlias": "", "hsrPath": "~/Home-Server-Runner", "readOnly": false, "mode": "auto" })
         hostsLocal = copy
         saveSettings()
     }
@@ -168,12 +170,24 @@ ColumnLayout {
                                 placeholderText: pluginApi?.tr("settings.aliasPlaceholder")
                                 onEditingFinished: root.updateHost(index, "sshAlias", text)
                             }
-                            NTextInput {
-                                Layout.fillWidth: true
-                                text: modelData.hsrPath
-                                placeholderText: pluginApi?.tr("settings.pathPlaceholder")
-                                onEditingFinished: root.updateHost(index, "hsrPath", text)
+                            NComboBox {
+                                Layout.preferredWidth: 150 * Style.uiScaleRatio
+                                model: [
+                                    { "key": "auto", "name": pluginApi?.tr("settings.modeAuto") ?? "Auto" },
+                                    { "key": "docker", "name": pluginApi?.tr("settings.modeDocker") ?? "Docker" },
+                                    { "key": "hsr", "name": pluginApi?.tr("settings.modeHsr") ?? "Home-Server-Runner" }
+                                ]
+                                currentKey: modelData.mode ?? "auto"
+                                onSelected: (key) => root.updateHost(index, "mode", key)
                             }
+                        }
+                        // Chemin Home-Server-Runner : utile seulement quand HSR peut être sondé/utilisé.
+                        NTextInput {
+                            Layout.fillWidth: true
+                            visible: (modelData.mode ?? "auto") !== "docker"
+                            text: modelData.hsrPath
+                            placeholderText: pluginApi?.tr("settings.pathPlaceholder")
+                            onEditingFinished: root.updateHost(index, "hsrPath", text)
                         }
                         NToggle {
                             Layout.fillWidth: true

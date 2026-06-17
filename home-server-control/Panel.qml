@@ -21,6 +21,12 @@ Item {
     property bool viewingLogs: false
     readonly property bool readOnly: main ? main.isReadOnly() : false
     readonly property bool confirmDestructive: pluginApi?.pluginSettings?.confirmDestructive ?? true
+    // Capacités du driver de l'hôte actif (docker masque les features git-aware).
+    // Dépendances explicites du binding : resolvedMode (résolution de la sonde auto) et
+    // activeHostIndex (changement d'hôte) → ré-évaluation correcte dans les deux cas.
+    readonly property var caps: (main && main.resolvedMode,
+                                 pluginApi?.pluginSettings?.activeHostIndex,
+                                 main ? main.capabilities() : ({}))
 
     // Jauges liées à hostInfo (réassigné à chaque poll) : MAJ fluide, sans recréer d'éléments.
     readonly property real ramPct: (main && main.hostInfo && main.hostInfo.mem && main.hostInfo.mem.usedPct != null)
@@ -262,7 +268,7 @@ Item {
                                 }
                                 // badge commits en retard.
                                 Rectangle {
-                                    visible: card.behind > 0
+                                    visible: card.behind > 0 && root.caps.gitBehind
                                     implicitWidth: bb.implicitWidth + Style.marginS * 2
                                     implicitHeight: bb.implicitHeight + Style.marginXS
                                     radius: Style.radiusXS
@@ -272,19 +278,20 @@ Item {
                                 Item { Layout.fillWidth: true }
 
                                 NIconButton {
+                                    visible: root.caps.checkUpdates === true
                                     icon: "cloud-download"
                                     tooltipText: pluginApi?.tr("panel.checkUpdate")
                                     onClicked: if (root.main) root.main.checkUpdates(card.pid)
                                 }
                                 NIconButton {
-                                    visible: !root.readOnly
+                                    visible: !root.readOnly && root.caps.update === true
                                     icon: "refresh-dot"
                                     tooltipText: pluginApi?.tr("panel.update")
                                     colorFgHover: Color.mPrimary
                                     onClicked: if (root.main) root.main.updateProject(card.pid)
                                 }
                                 NIconButton {
-                                    visible: !root.readOnly
+                                    visible: !root.readOnly && root.caps.restartAll === true
                                     icon: card.confirmingProject === "restart" ? "alert-triangle" : "reload"
                                     tooltipText: card.confirmingProject === "restart" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.restartAll")
                                     colorFg: card.confirmingProject === "restart" ? Color.mError : Color.mPrimary
@@ -292,7 +299,7 @@ Item {
                                     onClicked: card.projAct("restart")
                                 }
                                 NIconButton {
-                                    visible: !root.readOnly
+                                    visible: !root.readOnly && root.caps.deploy === true
                                     icon: card.confirmingProject === "full" ? "alert-triangle" : "rocket"
                                     tooltipText: card.confirmingProject === "full" ? pluginApi?.tr("panel.confirm") : pluginApi?.tr("panel.deployFull")
                                     colorFg: card.confirmingProject === "full" ? Color.mError : Color.mPrimary
@@ -349,7 +356,7 @@ Item {
                                         }
                                         NText {
                                             text: svcRow.status + (svcRow.health && svcRow.health !== "none" ? " · " + svcRow.health : "")
-                                                + (svcRow.repoBehind > 0 ? "  ↑" + svcRow.repoBehind : "")
+                                                + (root.caps.gitBehind && svcRow.repoBehind > 0 ? "  ↑" + svcRow.repoBehind : "")
                                             pointSize: Style.fontSizeXS
                                             color: Color.mOnSurfaceVariant
                                             Layout.fillWidth: true

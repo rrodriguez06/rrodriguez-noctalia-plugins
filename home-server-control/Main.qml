@@ -3,21 +3,30 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Services.UI
+import "drivers/Shared.js" as Shared
+import "drivers/HsrDriver.js" as Hsr
+import "drivers/DockerDriver.js" as Docker
+import "drivers/Registry.js" as Registry
 
-// Couche logique non-visuelle : pilote `manager.py` du Home-Server-Runner à distance via SSH.
-// Toutes les commandes serveur renvoient du JSON (--json) parsé ici. Aucun secret n'est stocké :
-// l'authentification passe par les alias ~/.ssh/config de l'utilisateur.
+// Couche logique non-visuelle. Pilote un home server via un « driver » résolu par hôte :
+//   • docker  : inspection/contrôle des conteneurs avec le seul CLI `docker` (défaut public),
+//   • hsr     : Home-Server-Runner (manager.py) — features git-aware (update/deploy),
+//   • auto    : sonde la présence de manager.py et choisit docker ou hsr.
+// Cible locale (alias SSH vide) OU distante (~/.ssh/config). Aucun secret stocké.
 Item {
     id: root
     property var pluginApi: null
 
     // ── État exposé au Panel / BarWidget ────────────────────────────────────
-    property var statusData: []           // tableau brut renvoyé par `status` (hôte actif)
-    property var hostInfo: ({})           // objet `host-info` (hôte actif)
-    property var planByPid: ({})          // pid -> plan d'`update --check-only`
+    property var statusData: []           // tableau normalisé renvoyé par le driver (hôte actif)
+    property var hostInfo: ({})           // objet host-info (hôte actif)
+    property var planByPid: ({})          // pid -> plan d'`update --check-only` (HSR)
     property bool reachable: true         // dernier poll de l'hôte actif a-t-il réussi ?
     property var expandedByPid: ({})      // pid -> bool : état déplié mémorisé (replié par défaut)
     property var svcModels: ({})          // pid -> ListModel des services (MAJ en place, anti-blink)
+
+    // Mode résolu par hôte (clé = alias SSH ou "__local__") : évite de re-sonder à chaque poll.
+    property var resolvedMode: ({})
 
     // Résumé pour la pastille de barre.
     property int barDown: 0
@@ -46,9 +55,7 @@ Item {
         "-o", "ControlPersist=60s"
     ]
 
-    // ── Helpers SSH / commandes ─────────────────────────────────────────────
-    function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'" }
-
+    // ── Réglages / hôtes ─────────────────────────────────────────────────────
     function settings() { return root.pluginApi?.pluginSettings ?? null }
 
     function hostAt(i) {
@@ -65,20 +72,54 @@ Item {
 
     function isReadOnly() { return root.activeHost()?.readOnly ?? false }
 
-    function remoteMgr(h, args) {
-        var q = args.map(root.shq).join(" ")
-        // `cd` dans le repo : manager.py lit config.yaml / projects en chemins relatifs.
-        // (Le ~ est développé par le shell distant car laissé non quoté.)
-        return "cd " + (h.hsrPath || "~/Home-Server-Runner") + " && python3 manager.py " + q + " --json"
+    // ── Résolution du driver ─────────────────────────────────────────────────
+    function hostKey(h) {
+        return (h && h.sshAlias && String(h.sshAlias).trim()) ? String(h.sshAlias).trim() : "__local__"
     }
 
-    function sshArgv(h, remoteStr) {
-        return ["ssh"].concat(root.sshBase).concat([h.sshAlias, remoteStr])
+    // Mode effectif : explicite (hsr/docker) ou résolu par la sonde (auto -> docker par défaut).
+    function effectiveMode(h) {
+        if (!h) return "docker"
+        var requested = h.mode || "auto"
+        if (requested === "hsr" || requested === "docker") return requested
+        return root.resolvedMode[root.hostKey(h)] || "docker"
     }
 
-    function mgrArgv(h, args) { return root.sshArgv(h, root.remoteMgr(h, args)) }
+    function driverFor(h) { return (root.effectiveMode(h) === "hsr") ? Hsr : Docker }
 
-    // Services détaillés d'un projet (pour le dépliage du Panel).
+    function capabilities() { return Registry.capabilitiesFor(root.effectiveMode(root.activeHost())) }
+
+    // Sonde auto : résout le mode de l'hôte puis re-poll. Renvoie false tant que la sonde tourne
+    // (les appelants — pollStatus/pollHostInfo — diffèrent ; onExited relance le poll).
+    function ensureResolved(h) {
+        if (!h) return false
+        if ((h.mode || "auto") !== "auto") return true
+        var k = root.hostKey(h)
+        if (root.resolvedMode[k]) return true
+        if (probeProc.running && probeProc.forKey === k) return false
+        probeProc.running = false
+        probeProc.forKey = k
+        probeProc.command = Registry.probeCommand(h, root.sshBase)
+        probeProc.running = true
+        return false
+    }
+
+    Process {
+        id: probeProc
+        property string forKey: ""
+        stdout: StdioCollector { id: probeOut }
+        onExited: code => {
+            var sig = (probeOut.text || "").trim()
+            var mode = (code === 0 && sig.indexOf("HSR") !== -1) ? "hsr" : "docker"
+            var m = root.resolvedMode
+            m[probeProc.forKey] = mode
+            root.resolvedMode = Object.assign({}, m)   // force le binding (capabilities, caps du Panel)
+            root.pollStatus(true)
+            root.pollHostInfo()
+        }
+    }
+
+    // ── Lookups schéma normalisé ─────────────────────────────────────────────
     function servicesOf(pid) {
         for (var i = 0; i < root.statusData.length; i++)
             if (root.statusData[i].id === pid)
@@ -93,16 +134,30 @@ Item {
         return []
     }
 
-    // ── Lecture : status ────────────────────────────────────────────────────
+    function _containerFor(pid, svc) {
+        var s = root.servicesOf(pid)
+        for (var i = 0; i < s.length; i++)
+            if (s[i].name === svc) return s[i].containerName || ""
+        return ""
+    }
+
+    function _containersOf(pid) {
+        return root.servicesOf(pid)
+            .map(function (s) { return s.containerName })
+            .filter(function (c) { return c && c.length })
+    }
+
+    // ── Lecture : status ──────────────────────────────────────────────────────
     Process {
         id: statusProc
+        property var _driver: null
         stdout: StdioCollector {
             onStreamFinished: {
-                try {
-                    var arr = JSON.parse(this.text || "[]")
-                } catch (e) {
+                var drv = statusProc._driver || root.driverFor(root.activeHost())
+                var arr = drv.parseList(this.text || "")
+                if (arr && arr.__error__) {
                     root.reachable = false
-                    Logger.w("HSC", "status parse error: " + e)
+                    Logger.w("HSC", "list error: " + arr.__error__)
                     return
                 }
                 if (!Array.isArray(arr)) { root.reachable = false; return }
@@ -116,9 +171,11 @@ Item {
     function pollStatus(fetch) {
         var h = root.activeHost()
         if (!h) { root.reachable = false; return }
-        var args = fetch ? ["status"] : ["status", "--no-fetch"]
+        if (!root.ensureResolved(h)) return
+        var drv = root.driverFor(h)
+        statusProc._driver = drv
         statusProc.running = false
-        statusProc.command = root.mgrArgv(h, args)
+        statusProc.command = drv.listCommand(h, root.sshBase, fetch)
         statusProc.running = true
     }
 
@@ -230,10 +287,11 @@ Item {
     // ── host-info ───────────────────────────────────────────────────────────
     Process {
         id: hostInfoProc
+        property var _driver: null
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.hostInfo = JSON.parse(this.text || "{}") }
-                catch (e) { Logger.w("HSC", "host-info parse error: " + e) }
+                var drv = hostInfoProc._driver || root.driverFor(root.activeHost())
+                root.hostInfo = drv.parseHostInfo(this.text || "{}")
             }
         }
     }
@@ -241,12 +299,15 @@ Item {
     function pollHostInfo() {
         var h = root.activeHost()
         if (!h) return
+        if (!root.ensureResolved(h)) return
+        var drv = root.driverFor(h)
+        hostInfoProc._driver = drv
         hostInfoProc.running = false
-        hostInfoProc.command = root.mgrArgv(h, ["host-info"])
+        hostInfoProc.command = drv.hostInfoCommand(h, root.sshBase)
         hostInfoProc.running = true
     }
 
-    // ── update --check-only (plan de MAJ) ────────────────────────────────────
+    // ── update --check-only (plan de MAJ, HSR uniquement) ─────────────────────
     Process {
         id: planProc
         stdout: StdioCollector {
@@ -269,10 +330,11 @@ Item {
 
     function checkUpdates(pid) {
         var h = root.activeHost()
-        if (!h) return
+        if (!h || !root.capabilities().checkUpdates) return
+        var drv = root.driverFor(h)
         root._planPending = pid
         planProc.running = false
-        planProc.command = root.mgrArgv(h, ["update", pid, "--check-only"])
+        planProc.command = drv.checkUpdatesCommand(h, pid, root.sshBase)
         planProc.running = true
     }
 
@@ -308,30 +370,37 @@ Item {
     function serviceAction(pid, svc, action) {
         if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
         var h = root.activeHost(); if (!h) return
-        root.dispatch(root.mgrArgv(h, ["service", pid, svc, action]),
+        var drv = root.driverFor(h)
+        var container = root._containerFor(pid, svc)
+        root.dispatch(drv.serviceActionCommand(h, pid, svc, container, action, root.sshBase),
                       action + " " + svc + "…", "✓ " + action + " " + svc)
     }
 
     function updateProject(pid) {
         if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
+        if (!root.capabilities().update) return
         var h = root.activeHost(); if (!h) return
-        root.dispatch(root.mgrArgv(h, ["update", pid]),
+        var drv = root.driverFor(h)
+        root.dispatch(drv.updateCommand(h, pid, root.sshBase),
                       "Mise à jour de « " + pid + " »…", "✓ " + pid + " à jour")
     }
 
     function deployProject(pid, full) {
         if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
+        if (!root.capabilities().deploy) return
         var h = root.activeHost(); if (!h) return
-        var args = full ? ["deploy", pid, "--full"] : ["deploy", pid]
-        root.dispatch(root.mgrArgv(h, args),
+        var drv = root.driverFor(h)
+        root.dispatch(drv.deployCommand(h, pid, full, root.sshBase),
                       "Déploiement de « " + pid + " »…", "✓ " + pid + " déployé")
     }
 
-    // Relance TOUS les containers d'un projet (docker compose restart, sans rebuild).
+    // Relance TOUS les conteneurs d'un projet (sans rebuild).
     function projectAction(pid, action) {
         if (root.isReadOnly()) { ToastService.showError("Hôte en lecture seule"); return }
         var h = root.activeHost(); if (!h) return
-        root.dispatch(root.mgrArgv(h, ["project", pid, action]),
+        var drv = root.driverFor(h)
+        var containers = root._containersOf(pid)
+        root.dispatch(drv.projectActionCommand(h, pid, action, containers, root.sshBase),
                       action + " « " + pid + " »…", "✓ " + pid + " : " + action)
     }
 
@@ -345,12 +414,13 @@ Item {
     function streamLogs(svc, container) {
         var h = root.activeHost()
         if (!h || !container) return
+        var drv = root.driverFor(h)
         var tail = root.settings()?.logTailLines ?? 200
         logProc.running = false
         root.logModel.clear()
         root.logTitle = svc
         root.logContainer = container
-        logProc.command = root.sshArgv(h, "docker logs -f --tail " + tail + " " + root.shq(container))
+        logProc.command = drv.logsCommand(h, container, tail, root.sshBase)
         logProc.running = true
     }
 
@@ -360,9 +430,9 @@ Item {
     function openLogsInTerminal() {
         var h = root.activeHost()
         if (!h || !root.logContainer) return
+        var drv = root.driverFor(h)
         var tail = root.settings()?.logTailLines ?? 200
-        Quickshell.execDetached(root._terminalArgs().concat(
-            ["ssh", "-t", h.sshAlias, "docker logs -f --tail " + tail + " " + root.logContainer]))
+        Quickshell.execDetached(root._terminalArgs().concat(drv.logsTerminalArgv(h, root.logContainer, tail)))
     }
 
     function appendLog(line) {
@@ -370,7 +440,7 @@ Item {
         while (root.logModel.count > 2000) root.logModel.remove(0)
     }
 
-    // ── SSH interactif (terminal) ────────────────────────────────────────────
+    // ── Shell interactif (terminal) ──────────────────────────────────────────
     function _terminalArgs() {
         var t = (root.settings()?.terminalCommand ?? "kitty -e").trim()
         return t.length ? t.split(/\s+/) : ["kitty", "-e"]
@@ -379,13 +449,17 @@ Item {
     function openShell(container) {
         var h = root.activeHost()
         if (!h || !container) return
-        Quickshell.execDetached(root._terminalArgs().concat(
-            ["ssh", "-t", h.sshAlias, "docker exec -it " + container + " sh -lc 'bash || sh'"]))
+        var drv = root.driverFor(h)
+        Quickshell.execDetached(root._terminalArgs().concat(drv.shellCommand(h, container)))
     }
 
+    // « Ouvrir un shell sur l'hôte » : terminal local simple, ou ssh -t en distant.
     function openHostSsh() {
         var h = root.activeHost(); if (!h) return
-        Quickshell.execDetached(root._terminalArgs().concat(["ssh", "-t", h.sshAlias]))
+        if (Shared.isLocal(h))
+            Quickshell.execDetached(root._terminalArgs())
+        else
+            Quickshell.execDetached(root._terminalArgs().concat(["ssh", "-t", h.sshAlias]))
     }
 
     function openUrl(url) {
@@ -395,14 +469,14 @@ Item {
     // ── Test de connexion (Settings) ─────────────────────────────────────────
     Process {
         id: testProc
+        property var _driver: null
         stdout: StdioCollector { id: tOut }
         stderr: StdioCollector { id: tErr }
         onExited: code => {
             if (code === 0) {
-                try {
-                    var info = JSON.parse(tOut.text || "{}")
-                    ToastService.showNotice("✓ Connecté : " + (info.hostname || "ok"))
-                } catch (e) { ToastService.showNotice("✓ Connecté") }
+                var drv = testProc._driver || root.driverFor(root.activeHost())
+                var info = drv.parseHostInfo(tOut.text || "{}")
+                ToastService.showNotice("✓ Connecté : " + (info.hostname || "ok"))
             } else {
                 ToastService.showError("Échec connexion : " + ((tErr.text || "").trim() || ("code " + code)))
             }
@@ -412,9 +486,12 @@ Item {
     function testConnection(index) {
         var h = (index === undefined) ? root.activeHost() : root.hostAt(index)
         if (!h) { ToastService.showError("Aucun hôte configuré"); return }
-        ToastService.showNotice("Test de " + (h.name || h.sshAlias) + "…")
+        ToastService.showNotice("Test de " + (h.name || h.sshAlias || "local") + "…")
+        // host-info fonctionne dans les deux drivers ; en auto pré-sonde, le défaut docker convient.
+        var drv = root.driverFor(h)
+        testProc._driver = drv
         testProc.running = false
-        testProc.command = root.mgrArgv(h, ["host-info"])
+        testProc.command = drv.hostInfoCommand(h, root.sshBase)
         testProc.running = true
     }
 
@@ -431,7 +508,7 @@ Item {
         root.svcModels = ({})         // les anciens ListModel deviennent collectables
         root.expandedByPid = ({})     // repli par défaut sur le nouvel hôte
         root.hostInfo = ({})
-        root.pollStatus(true)
+        root.pollStatus(true)         // ensureResolved() sonde le nouvel hôte si besoin
         root.pollHostInfo()
     }
 
@@ -450,7 +527,7 @@ Item {
         onTriggered: root.pollStatus(false)
     }
 
-    // Quand le panel est ouvert : rafraîchit la dérive git périodiquement (avec fetch).
+    // Quand le panel est ouvert : rafraîchit la dérive git périodiquement (avec fetch, HSR).
     Timer {
         id: driftTimer
         repeat: true
