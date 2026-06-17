@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Widgets
 import qs.Commons
@@ -459,7 +460,7 @@ Item {
         opacity: root.viewingLogs ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Style.animationFast; easing.type: Easing.OutCubic } }
         // À l'ouverture de l'overlay : on (re)suit la fin du flux.
-        onVisibleChanged: if (visible) { logList.followTail = true; Qt.callLater(logList.positionViewAtEnd) }
+        onVisibleChanged: if (visible) { logFlick.followTail = true; logTextEdit.applyPending(); Qt.callLater(logFlick.toBottom) }
 
         ColumnLayout {
             anchors.fill: parent
@@ -493,47 +494,64 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
-                ListView {
-                    id: logList
+                Flickable {
+                    id: logFlick
                     anchors.fill: parent
                     anchors.margins: Style.marginS
                     clip: true
-                    model: root.main ? root.main.logModel : null
-                    // Pas d'overscroll (sinon on scrolle « sous » la dernière ligne + flicker).
-                    boundsBehavior: Flickable.StopAtBounds
+                    boundsBehavior: Flickable.StopAtBounds   // pas d'overscroll / flicker
                     flickableDirection: Flickable.VerticalFlick
-                    cacheBuffer: 400
 
                     // Suivi du bas du flux, UNIQUEMENT tant que l'utilisateur est déjà en bas.
                     property bool followTail: true
                     property bool userInteracting: false
+                    function toBottom() { contentY = Math.max(0, contentHeight - height) }
 
                     onMovementStarted: userInteracting = true
                     onMovementEnded: { userInteracting = false; followTail = atYEnd }
-                    onDraggingChanged: if (dragging) followTail = false
+                    onContentHeightChanged: if (followTail && !userInteracting) toBottom()
 
-                    // Reste collé en bas pendant que le contenu grandit (et que les lignes
-                    // wrappées prennent leur hauteur finale) — sauf si l'utilisateur scrolle.
-                    onContentHeightChanged: if (followTail && !userInteracting) positionViewAtEnd()
-                    onCountChanged: if (followTail && !userInteracting) Qt.callLater(positionViewAtEnd)
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     // Nouveau service de logs -> on resuit la fin.
                     Connections {
                         target: root.main
                         function onLogTitleChanged() {
-                            logList.followTail = true
-                            Qt.callLater(logList.positionViewAtEnd)
+                            logFlick.followTail = true
+                            logTextEdit.applyPending()
+                            Qt.callLater(logFlick.toBottom)
                         }
                     }
 
-                    delegate: NText {
-                        required property string line
-                        width: logList.width
-                        text: line
-                        pointSize: Style.fontSizeXS
+                    // TextArea lecture seule : drag = SÉLECTION (pas scroll), molette/scrollbar = scroll,
+                    // Ctrl+C natif, sélection multi-lignes. On ne met PAS à jour le texte tant qu'une
+                    // sélection est active, pour ne pas l'effacer pendant que l'utilisateur copie (flux live).
+                    TextArea.flickable: TextArea {
+                        id: logTextEdit
+                        readOnly: true
+                        selectByMouse: true
+                        selectByKeyboard: true
+                        persistentSelection: true
+                        wrapMode: TextArea.WrapAnywhere
+                        textFormat: TextArea.PlainText
                         font.family: "monospace"
-                        wrapMode: Text.WrapAnywhere
+                        font.pointSize: Style.fontSizeXS
                         color: Color.mOnSurface
+                        selectionColor: Color.mPrimary
+                        selectedTextColor: Color.mOnPrimary
+                        background: null
+                        padding: 0
+
+                        property string pending: root.main ? root.main.logText : ""
+                        onPendingChanged: applyPending()
+                        onSelectedTextChanged: if (selectedText.length === 0) applyPending()
+                        function applyPending() {
+                            if (selectedText.length > 0) return       // ne pas écraser une sélection
+                            if (text === pending) return
+                            text = pending
+                            if (logFlick.followTail && !logFlick.userInteracting)
+                                Qt.callLater(logFlick.toBottom)
+                        }
                     }
                 }
 
@@ -542,10 +560,10 @@ Item {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: Style.marginM
-                    visible: !logList.followTail
+                    visible: !logFlick.followTail
                     icon: "chevron-down"
                     tooltipText: pluginApi?.tr("panel.scrollBottom")
-                    onClicked: { logList.followTail = true; logList.positionViewAtEnd() }
+                    onClicked: { logFlick.followTail = true; logFlick.toBottom() }
                 }
             }
         }

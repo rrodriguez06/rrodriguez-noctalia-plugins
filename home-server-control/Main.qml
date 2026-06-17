@@ -43,8 +43,10 @@ Item {
     // Modèle résumé par projet pour la NListView du Panel.
     property ListModel projectsModel: ListModel {}
 
-    // Logs en direct (overlay du Panel).
-    property ListModel logModel: ListModel {}
+    // Logs en direct (overlay du Panel) — texte brut pour un TextEdit sélectionnable/copiable.
+    property string logText: ""
+    property var _logLines: []
+    readonly property int logCap: 5000
     property string logTitle: ""
     property string logContainer: ""      // conteneur en cours de stream (pour « ouvrir en grand »)
 
@@ -485,7 +487,8 @@ Item {
         var drv = root.driverFor(h)
         var tail = root.settings()?.logTailLines ?? 200
         logProc.running = false
-        root.logModel.clear()
+        root._logLines = []
+        root.logText = ""
         root.logTitle = svc
         root.logContainer = container
         logProc.command = drv.logsCommand(h, container, tail, root.sshBase)
@@ -504,8 +507,10 @@ Item {
     }
 
     function appendLog(line) {
-        root.logModel.append({ "line": line })
-        while (root.logModel.count > 2000) root.logModel.remove(0)
+        var arr = root._logLines
+        arr.push(line)
+        if (arr.length > root.logCap) arr.splice(0, arr.length - root.logCap)
+        root.logText = arr.join("\n")
     }
 
     // ── Shell interactif (terminal) ──────────────────────────────────────────

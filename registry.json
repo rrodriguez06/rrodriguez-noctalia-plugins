@@ -23,7 +23,7 @@
     {
       "id": "home-server-control",
       "name": "Home Server Control",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Monitore et pilote des services Docker (local/SSH) et Cloud Run (gcloud). Intégration optionnelle Home-Server-Runner (déploiements git-aware).",
