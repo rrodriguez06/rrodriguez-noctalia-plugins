@@ -1,0 +1,84 @@
+{
+  "ccw": {
+    "tooltip": "Claude Conductor"
+  },
+  "context": {
+    "refresh": "Refresh",
+    "settings": "Settings",
+    "focusNext": "Jump to waiting agent"
+  },
+  "bar": {
+    "none": "Claude Conductor — no session",
+    "sessions": "session(s)",
+    "waiting": "waiting",
+    "running": "working",
+    "idle": "ready"
+  },
+  "panel": {
+    "title": "Claude Conductor",
+    "subtitle": "Your Claude Code sessions, live",
+    "refresh": "Refresh",
+    "focusNext": "Jump to waiting agent",
+    "empty": "No active Claude Code session",
+    "emptyHint": "Run \"claude\" in a repo — the session will show up here.",
+    "hooksWarn": "Hooks not installed: the \"waiting\" state may be approximate. Settings → Hooks.",
+    "focus": "Jump to window",
+    "tail": "Follow transcript",
+    "resume": "Resume in a terminal",
+    "openInTerminal": "Open transcript large",
+    "closeTail": "Close",
+    "scrollBottom": "Back to bottom",
+    "stateRunning": "working",
+    "stateWaiting": "waiting on you",
+    "stateIdle": "ready",
+    "viaVscode": "VS Code",
+    "viaCli": "terminal",
+    "branch": "branch",
+    "ago": "ago"
+  },
+  "launcher": {
+    "status": "Claude sessions",
+    "statusDesc": "Open the Claude Conductor panel",
+    "focusDesc": "Jump to a Claude Code session",
+    "resumeDesc": "Resume an ended session",
+    "focus": "jump to window",
+    "resume": "resume"
+  },
+  "settings": {
+    "tabs": {
+      "behavior": "Behavior",
+      "hooks": "Hooks"
+    },
+    "notifyOnWaiting": "Notify when an agent waits",
+    "notifyOnWaitingDesc": "Toast + desktop notification as soon as a session needs you (permission or idle).",
+    "notifyOnDone": "Notify when an agent finishes",
+    "notifyOnDoneDesc": "Notification when a session ends its turn after working for a while.",
+    "doneMinSeconds": "Minimum duration for \"done\"",
+    "doneMinSecondsDesc": "Only notify completion if the agent worked at least this many seconds",
+    "enrichOnOpen": "Enrich when open",
+    "enrichOnOpenDesc": "Reads transcripts (title, branch, model, last message) while the panel is open.",
+    "tailLines": "Transcript lines",
+    "tailLinesDesc": "Number of lines shown when opening the Tail",
+    "pollIdle": "Interval (panel closed)",
+    "pollIdleDesc": "Liveness sweep frequency while the panel is closed (ms)",
+    "pollOpen": "Interval (panel open)",
+    "pollOpenDesc": "Sweep + enrichment frequency while the panel is open (ms)",
+    "terminalCommand": "Terminal command",
+    "terminalCommandDesc": "Terminal used for Resume and opening the transcript (e.g. kitty -e)",
+    "trackEntrypoints": "Tracked sessions",
+    "trackEntrypointsDesc": "Which session kinds to display",
+    "trackCli": "Terminal (CLI)",
+    "trackVscode": "VS Code",
+    "hooksTitle": "Real-time bridge (hooks)",
+    "hooksDesc": "Claude Code hooks push session state to the plugin (zero latency, reliable \"waiting\" detection). They add no cost: it is just a local IPC call.",
+    "hooksInstalled": "✓ Hooks installed",
+    "hooksNotInstalled": "Hooks not installed",
+    "hooksInstall": "Install hooks",
+    "hooksUninstall": "Uninstall hooks",
+    "hooksNote": "Edits ~/.claude/settings.json (a .bak backup is created). Reversible in one click."
+  },
+  "notif": {
+    "waiting": "is waiting on you",
+    "done": "agent finished"
+  }
+}

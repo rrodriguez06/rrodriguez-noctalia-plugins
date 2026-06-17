@@ -39,6 +39,26 @@
         "launcherProvider": "LauncherProvider.qml",
         "controlCenterWidget": "ControlCenterWidget.qml"
       }
+    },
+    {
+      "id": "claude-conductor",
+      "name": "Claude Conductor",
+      "version": "0.1.0",
+      "author": "rrodriguez06",
+      "license": "MIT",
+      "description": "Chef d'orchestre de tes sessions Claude Code : pastille d'état agrégé (tourne / t'attend / fini), panneau groupé par repo, téléportation vers l'agent qui te bloque, Tail live et Resume. 100 % local.",
+      "tags": ["Bar", "Panel", "Launcher", "ControlCenter", "Utility"],
+      "official": false,
+      "minNoctaliaVersion": "4.5.0",
+      "lastUpdated": "2026-06-17T20:00:00Z",
+      "entryPoints": {
+        "main": "Main.qml",
+        "barWidget": "BarWidget.qml",
+        "panel": "Panel.qml",
+        "settings": "Settings.qml",
+        "launcherProvider": "LauncherProvider.qml",
+        "controlCenterWidget": "ControlCenterWidget.qml"
+      }
     }
   ]
 }

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Claude Conductor — pont hook → plugin Noctalia.
+# Invoqué par les hooks Claude Code comme :  cc-hook <state>
+#   state ∈ start | running | waiting | idle | end
+# Lit le JSON du hook sur stdin (session_id, cwd, message, transcript_path).
+# Pousse l'état vers le plugin via IPC. Toujours exit 0, vite, pour ne JAMAIS bloquer Claude.
+
+state="${1:-running}"
+payload="$(cat 2>/dev/null)"
+
+sid=""; cwd=""; msg=""; tp=""
+if command -v jq >/dev/null 2>&1; then
+  sid=$(printf '%s' "$payload" | jq -r '.session_id // empty'     2>/dev/null)
+  cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty'            2>/dev/null)
+  msg=$(printf '%s' "$payload" | jq -r '.message // empty'        2>/dev/null)
+  tp=$(printf  '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)
+fi
+
+# Fallback : si stdin n'a pas donné le cwd, prendre le répertoire courant du hook.
+[ -n "$cwd" ] || cwd="$PWD"
+
+qs -c noctalia-shell ipc call plugin:claude-conductor event \
+   "$state" "$sid" "$cwd" "$msg" "$tp" >/dev/null 2>&1 || true
+exit 0
