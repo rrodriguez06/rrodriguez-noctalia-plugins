@@ -106,12 +106,27 @@ function hostInfoCommand(h, sshBase) {
 function parseHostInfo(text) { return Shared.safeJson(text, {}) }
 
 // ── Logs Cloud Run via Cloud Logging (one-shot, non-streaming) ──────────────
+// Rapidité : `--order=desc` (indexé) + `--limit N` récupère les N entrées les PLUS récentes
+// (au lieu de `--order=asc --freshness=1d` qui ramène les plus vieilles et reste vide sur un
+// service peu actif). On inverse ensuite avec `tac` pour un affichage chronologique.
+//
+// Complétude : Cloud Run produit 3 formes de logs et l'ancien format n'en montrait qu'une
+// (`textPayload`) → message vide pour le reste. On couvre les trois :
+//   • textPayload                — logs stdout/stderr de l'app
+//   • jsonPayload.message        — logs structurés
+//   • httpRequest.*              — logs de requêtes (method / status / url)
+function _logsFormat() {
+    return "--format='value[separator=\" \"]("
+         + "timestamp.date(format=\"%Y-%m-%dT%H:%M:%S\",tz=\"LOCAL\"),"
+         + "severity,textPayload,jsonPayload.message,"
+         + "httpRequest.requestMethod,httpRequest.status,httpRequest.requestUrl)'"
+}
 function _logsRemoteStr(h, container, tail) {
     var filter = "resource.type=cloud_run_revision AND resource.labels.service_name=" + container
     return "gcloud logging read " + Shared.shq(filter)
          + (h && h.project ? " --project " + Shared.shq(h.project) : "")
-         + " --limit " + tail + " --freshness=1d --order=asc"
-         + " --format='value(timestamp,severity,textPayload)'"
+         + " --limit " + tail + " --order=desc " + _logsFormat()
+         + " | tac"
 }
 function logsCommand(h, container, tail, sshBase) {
     return Shared.wrap(h, sshBase, _logsRemoteStr(h, container, tail))
