@@ -132,7 +132,14 @@ function logsCommand(h, container, tail, sshBase) {
     return Shared.wrap(h, sshBase, _logsRemoteStr(h, container, tail))
 }
 function logsTerminalArgv(h, container, tail) {
-    return Shared.wrapInteractive(h, _logsRemoteStr(h, container, tail))
+    // `gcloud logging read` est ONE-SHOT (contrairement à `docker logs -f` qui bloque) :
+    // sans garde, le terminal se fermerait aussitôt. On garde la fenêtre ouverte et
+    // scrollable : pager `less` (départ en bas, +G) s'il est dispo, sinon dump + attente d'Entrée.
+    var base = _logsRemoteStr(h, container, tail)   // se termine déjà par « | tac »
+    var rs = "L=$(" + base + "); "
+           + "if command -v less >/dev/null 2>&1; then printf '%s\\n' \"$L\" | less +G; "
+           + "else printf '%s\\n' \"$L\"; printf '\\nAppuie sur Entree pour fermer... '; read _; fi"
+    return Shared.wrapInteractive(h, rs)
 }
 
 // Pas de shell dans Cloud Run.
