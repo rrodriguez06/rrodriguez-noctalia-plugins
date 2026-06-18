@@ -85,6 +85,7 @@ Item {
         if (!root.mainInstance)
             return
         var ts = root.mainInstance.tiles
+        root.mainInstance.dlog("ATTACH termClip=" + Math.round(termClip.width) + "x" + Math.round(termClip.height))   // [DIAG]
         for (var i = 0; i < ts.length; i++) {
             ts[i].parent = termClip.contentItem
             ts[i].start()   // idempotent ; démarre (différé) à la taille réelle du panel, pas du holder
@@ -117,6 +118,7 @@ Item {
         interval: 600
         onTriggered: {
             if (!root.mainInstance) return
+            root.mainInstance.dlog("SIZEREPORT-timer termClip=" + Math.round(termClip.width) + "x" + Math.round(termClip.height))   // [DIAG]
             if (termClip.height > 0) root.mainInstance.reportContentSize(termClip.width, termClip.height)
             // Repaint de sécurité une fois le panel pleinement ouvert (cf. TerminalTile.refresh).
             var ts = root.mainInstance.tiles, cur = root.mainInstance.currentTab

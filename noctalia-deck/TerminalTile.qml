@@ -83,7 +83,13 @@ Item {
     // Force le re-dessin : après le re-parentage (changement de fenêtre), QMLTermWidget ne se repeint
     // pas tant que rien ne l'invalide (d'où l'écran « vide » jusqu'à un scroll). updateImage() re-récupère
     // l'image de l'écran du terminal et redessine — slot de base, dispo sans le fork.
-    function refresh() { if (typeof term.updateImage === "function") term.updateImage() }
+    signal dbgInfo(string info)   // [DIAG] remonté à Main pour écriture fichier
+    function refresh() {
+        tile.dbgInfo("REFRESH tile=" + Math.round(tile.width) + "x" + Math.round(tile.height)
+            + " term=" + Math.round(term.width) + "x" + Math.round(term.height)
+            + " cols=" + term.columns + " lines=" + term.lines)
+        if (typeof term.updateImage === "function") term.updateImage()
+    }
 
 
     // Live theming : présent uniquement avec le fork qmltermwidget-noctalia (slot applyColorSchemeFile).
