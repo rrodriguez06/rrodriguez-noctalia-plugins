@@ -91,10 +91,11 @@ Item {
         if (!root.mainInstance)
             return
         var ts = root.mainInstance.tiles
+        root.mainInstance.dlog("ATTACH-called n=" + ts.length + " termClip=" + Math.round(termClip.width) + "x" + Math.round(termClip.height))   // [DIAG]
         for (var i = 0; i < ts.length; i++) {
             ts[i].parent = termClip.contentItem
             ts[i].start()   // idempotent ; démarre (différé) à la taille réelle du panel, pas du holder
-            ts[i].logState("ATTACH")   // [DIAG 0.3.8]
+            ts[i].logState("ATTACH")   // [DIAG]
         }
         // Restaure l'onglet précédemment sélectionné (survit aux ouvertures/fermetures).
         tabBar.currentIndex = root.mainInstance.currentTab

@@ -156,9 +156,15 @@ Item {
         height: root.deckContentH > 0 ? root.deckContentH : root.cfgHeight * Style.uiScaleRatio
     }
 
+    // [DIAG] écriture fichier centralisée (qs redirige stdout/stderr vers /dev/null).
+    function dlog(m) {
+        Quickshell.execDetached(["sh", "-c", 'printf "%s %s\\n" "$(date +%H:%M:%S.%N)" "$1" >> /tmp/noctalia-deck-debug.log', "sh", m])
+    }
+
     function reclaimTiles() {
+        root.dlog("RECLAIM-called n=" + root.tiles.length)   // [DIAG]
         for (var i = 0; i < root.tiles.length; i++) {
-            root.tiles[i].logState("RECLAIM")   // [DIAG 0.3.8] état au moment de la fermeture
+            root.tiles[i].logState("RECLAIM")   // [DIAG] état au moment de la fermeture (via dbgResize→dlog)
             root.tiles[i].parent = tileHolder
         }
     }
@@ -190,6 +196,7 @@ Item {
             if (t.autoRelaunch && (Date.now() - t._startedAt) > t._minLifeMs)
                 root._recreateTileAt(root.tiles.indexOf(t))
         })
+        t.dbgResize.connect(function (info) { root.dlog(info) })   // [DIAG]
         return t
     }
 
