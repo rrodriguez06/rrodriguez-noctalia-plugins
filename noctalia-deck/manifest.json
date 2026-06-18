@@ -1,0 +1,35 @@
+{
+  "id": "noctalia-deck",
+  "name": "Noctalia Deck",
+  "version": "0.1.0",
+  "minNoctaliaVersion": "4.5.0",
+  "author": "rrodriguez06",
+  "license": "MIT",
+  "description": "Terminal flottant persistant, affichable/masquable au keybind ou bouton de barre (style Quake), intégré au thème Noctalia. Socle extensible pour des tuiles flottantes (sessions, TUIs…).",
+  "tags": ["Bar", "ControlCenter", "Launcher", "Utility"],
+  "entryPoints": {
+    "main": "Main.qml",
+    "barWidget": "BarWidget.qml",
+    "settings": "Settings.qml",
+    "launcherProvider": "LauncherProvider.qml",
+    "controlCenterWidget": "ControlCenterWidget.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {
+      "width": 900,
+      "height": 480,
+      "topMargin": 40,
+      "themeMode": "noctalia",
+      "schemeName": "Solarized",
+      "fontFamily": "",
+      "fontSize": 11,
+      "keyboardFocusMode": "ondemand",
+      "shellProgram": "",
+      "closeOnFocusLost": false,
+      "showToasts": true
+    }
+  }
+}

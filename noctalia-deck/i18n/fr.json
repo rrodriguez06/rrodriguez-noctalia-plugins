@@ -1,0 +1,57 @@
+{
+    "ccw": {
+        "tooltip": "Noctalia Deck — terminal flottant"
+    },
+    "context": {
+        "newSession": "Nouvelle session",
+        "settings": "Réglages"
+    },
+    "bar": {
+        "show": "Afficher le terminal",
+        "hide": "Masquer le terminal"
+    },
+    "error": {
+        "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",
+        "missingDepLong": "Noctalia Deck nécessite le paquet « qmltermwidget » :\n\n  pacman -S qmltermwidget\n\npuis redémarrez le shell.",
+        "missingDepTitle": "Dépendance manquante"
+    },
+    "toast": {
+        "sessionEnded": "Session terminée — clic droit sur le widget pour une nouvelle session."
+    },
+    "launcher": {
+        "toggle": "Basculer le terminal",
+        "toggleDesc": "Afficher ou masquer le terminal Noctalia Deck"
+    },
+    "settings": {
+        "tabs": {
+            "window": "Fenêtre",
+            "appearance": "Apparence"
+        },
+        "width": "Largeur",
+        "widthDesc": "Largeur de la fenêtre flottante.",
+        "height": "Hauteur",
+        "heightDesc": "Hauteur de la fenêtre flottante.",
+        "topMargin": "Marge haute",
+        "topMarginDesc": "Espace sous le bord haut — à régler pour passer sous ta barre.",
+        "focusMode": "Focus clavier",
+        "focusModeDesc": "« À la demande » garde les keybinds Hyprland actifs ; « Exclusif » permet de taper immédiatement après le toggle.",
+        "focusOndemand": "À la demande (focus au clic)",
+        "focusExclusive": "Exclusif (taper tout de suite)",
+        "closeOnFocusLost": "Fermer à la perte de focus",
+        "closeOnFocusLostDesc": "Masque le terminal automatiquement quand il perd le focus clavier.",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Affiche un toast quand la session shell se termine.",
+        "shellProgram": "Programme shell",
+        "shellProgramDesc": "Vide = $SHELL. Les futures tuiles lanceront d'autres commandes ici (ex. claude).",
+        "themeMode": "Source des couleurs",
+        "themeModeDesc": "Caler sur le thème global Noctalia (suit clair/sombre) ou choisir un schéma terminal fixe.",
+        "themeNoctalia": "Thème Noctalia (auto)",
+        "themeScheme": "Schéma terminal",
+        "scheme": "Schéma terminal",
+        "schemeDesc": "Un des schémas de couleurs fournis par qmltermwidget.",
+        "fontFamily": "Police",
+        "fontFamilyDesc": "Police à chasse fixe. Vide = monospace.",
+        "fontSize": "Taille de police",
+        "fontSizeDesc": "Taille (points) de la police du terminal."
+    }
+}

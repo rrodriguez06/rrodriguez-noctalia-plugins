@@ -1,0 +1,57 @@
+{
+    "ccw": {
+        "tooltip": "Noctalia Deck — floating terminal"
+    },
+    "context": {
+        "newSession": "New session",
+        "settings": "Settings"
+    },
+    "bar": {
+        "show": "Show terminal",
+        "hide": "Hide terminal"
+    },
+    "error": {
+        "missingDep": "qmltermwidget is missing (pacman -S qmltermwidget)",
+        "missingDepLong": "Noctalia Deck needs the 'qmltermwidget' package:\n\n  pacman -S qmltermwidget\n\nthen restart the shell.",
+        "missingDepTitle": "Missing dependency"
+    },
+    "toast": {
+        "sessionEnded": "Terminal session ended — right-click the widget for a new session."
+    },
+    "launcher": {
+        "toggle": "Toggle terminal",
+        "toggleDesc": "Show or hide the Noctalia Deck terminal"
+    },
+    "settings": {
+        "tabs": {
+            "window": "Window",
+            "appearance": "Appearance"
+        },
+        "width": "Width",
+        "widthDesc": "Floating window width.",
+        "height": "Height",
+        "heightDesc": "Floating window height.",
+        "topMargin": "Top margin",
+        "topMarginDesc": "Gap below the top edge — set it to clear your bar.",
+        "focusMode": "Keyboard focus",
+        "focusModeDesc": "On demand keeps Hyprland keybinds working; Exclusive lets you type immediately after toggling.",
+        "focusOndemand": "On demand (focus on click)",
+        "focusExclusive": "Exclusive (type immediately)",
+        "closeOnFocusLost": "Close on focus loss",
+        "closeOnFocusLostDesc": "Hide the terminal automatically when it loses keyboard focus.",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Show a toast when the shell session ends.",
+        "shellProgram": "Shell program",
+        "shellProgramDesc": "Leave empty to use $SHELL. Future tiles will run other commands here (e.g. claude).",
+        "themeMode": "Color source",
+        "themeModeDesc": "Match the global Noctalia theme (follows light/dark) or pick a fixed terminal scheme.",
+        "themeNoctalia": "Noctalia theme (auto)",
+        "themeScheme": "Terminal scheme",
+        "scheme": "Terminal scheme",
+        "schemeDesc": "One of the built-in qmltermwidget color schemes.",
+        "fontFamily": "Font",
+        "fontFamilyDesc": "Monospace font family. Empty = monospace.",
+        "fontSize": "Font size",
+        "fontSizeDesc": "Terminal font point size."
+    }
+}
