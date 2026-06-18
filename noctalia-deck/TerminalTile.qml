@@ -86,18 +86,33 @@ Item {
             onWheel: (w) => term.simulateWheel(w.x, w.y, w.buttons, w.modifiers, w.angleDelta)
         }
 
-        QMLTermScrollbar {
-            id: scrollbar
-            terminal: term
+        // Scrollbar maison : le thumb reste clampé entre [pad, height-pad] (pad = rayon des coins)
+        // et détaché du bord droit, pour ne jamais empiéter sur les coins arrondis.
+        Rectangle {
+            id: sb
+            readonly property real pad: Style.radiusM
+            readonly property int total: term.lines + term.scrollbarMaximum
+            readonly property real range: term.scrollbarMaximum - term.scrollbarMinimum
+            readonly property real trackH: Math.max(0, term.height - 2 * pad)
+
+            visible: term.scrollbarMaximum > 0
+            width: 4 * Style.uiScaleRatio
+            radius: width / 2
+            color: Color.mOnSurfaceVariant
             anchors.right: parent.right
-            width: 6 * Style.uiScaleRatio
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: 1
-                radius: width / 2
-                color: Color.mOnSurfaceVariant
-                opacity: scrollbar.opacity
+            anchors.rightMargin: 3 * Style.uiScaleRatio
+
+            height: total > 0 ? Math.max(20 * Style.uiScaleRatio, trackH * (term.lines / total)) : 0
+            y: pad + (range > 0 ? (trackH - height) * ((term.scrollbarCurrentValue - term.scrollbarMinimum) / range) : 0)
+
+            opacity: 0
+            Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+
+            Connections {
+                target: term
+                function onScrollbarValueChanged() { sb.opacity = 1; hideTimer.restart() }
             }
+            Timer { id: hideTimer; interval: 1200; onTriggered: sb.opacity = 0 }
         }
     }
 
