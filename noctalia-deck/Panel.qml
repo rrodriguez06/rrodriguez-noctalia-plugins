@@ -13,38 +13,45 @@ Item {
     readonly property var mainInstance: pluginApi?.mainInstance ?? null
 
     // Contrat lu par SmartPanel/PluginPanelSlot.
-    readonly property var geometryPlaceholder: clip
+    // geometryPlaceholder = bg (rect complet) → le fond arrondi natif est dessiné sur tout le panel.
+    readonly property var geometryPlaceholder: bg
     readonly property bool allowAttach: true
-    readonly property bool panelAnchorHorizontalCenter: (mainInstance && mainInstance.cfgPosition === "centered")
+    readonly property bool panelAnchorHorizontalCenter: (mainInstance ? mainInstance.cfgPosition === "centered" : false)
     property real contentPreferredWidth: (mainInstance ? mainInstance.cfgWidth : 900) * Style.uiScaleRatio
     property real contentPreferredHeight: (mainInstance ? mainInstance.cfgHeight : 480) * Style.uiScaleRatio
 
     anchors.fill: parent
 
-    // Hôte du contenu, arrondi (clippe les coins carrés du terminal).
-    ClippingRectangle {
-        id: clip
+    Item {
+        id: bg
         anchors.fill: parent
-        radius: Style.radiusL
-        color: Color.mSurface
 
-        // Message si la dépendance manque (pas de tuile).
-        NText {
-            anchors.centerIn: parent
-            visible: !(root.mainInstance && root.mainInstance.depAvailable)
-            width: parent.width - Style.marginXL * 2
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
-            color: Color.mOnSurface
-            text: root.pluginApi ? root.pluginApi.tr("error.missingDepLong")
-                                 : "qmltermwidget requis :\n  pacman -S qmltermwidget\npuis redémarrez le shell."
+        // Le terminal est inséré ici, avec une petite marge intérieure pour ne pas déborder du fond
+        // arrondi natif, et clippé en arrondi (radius) pour coller à l'esthétique Noctalia.
+        ClippingRectangle {
+            id: termClip
+            anchors.fill: parent
+            anchors.margins: Style.marginS
+            radius: Style.radiusM
+            color: Color.mSurface
+
+            NText {
+                anchors.centerIn: parent
+                visible: !(root.mainInstance && root.mainInstance.depAvailable)
+                width: parent.width - Style.marginXL * 2
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                color: Color.mOnSurface
+                text: root.pluginApi ? root.pluginApi.tr("error.missingDepLong")
+                                     : "qmltermwidget requis :\n  pacman -S qmltermwidget\npuis redémarrez le shell."
+            }
         }
     }
 
     function _attachTile() {
         var t = root.mainInstance ? root.mainInstance.tileItem : null
         if (t) {
-            t.parent = clip
+            t.parent = termClip
             Qt.callLater(t.focusTerminal)
         }
     }

@@ -10,5 +10,5 @@ NIconButtonHot {
     icon: "terminal"
     tooltipText: pluginApi ? pluginApi.tr("ccw.tooltip") : "Noctalia Deck"
 
-    onClicked: if (pluginApi) pluginApi.togglePanel(screen, this)
+    onClicked: if (pluginApi) pluginApi.togglePanel(screen, (pluginApi.mainInstance && pluginApi.mainInstance.cfgPosition === "centered") ? null : this)
 }

@@ -29,7 +29,8 @@ Item {
         icon: "terminal"
         tooltipText: root.depAvailable ? (pluginApi ? pluginApi.tr("bar.toggle") : "Terminal")
                                        : (pluginApi ? pluginApi.tr("error.missingDep") : "qmltermwidget manquant")
-        onClicked: if (root.pluginApi) root.pluginApi.togglePanel(root.screen, pill)
+        // En mode « centré », on n'attache pas au bouton (sinon SmartPanel ignore le centrage).
+        onClicked: if (root.pluginApi) root.pluginApi.togglePanel(root.screen, (root.main && root.main.cfgPosition === "centered") ? null : pill)
         onRightClicked: PanelService.showContextMenu(contextMenu, root, root.screen)
     }
 
