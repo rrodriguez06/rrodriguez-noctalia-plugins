@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import QMLTermWidget 2.0
 
@@ -81,15 +80,6 @@ Item {
     function copy() { term.copyClipboard() }
     function paste() { term.pasteClipboard() }
 
-    // [DIAG] état lisible par Main/Panel (qui écrivent dans le fichier via Main.dlog).
-    readonly property string dbg: "id=" + tile.shellProgram
-        + " tile=" + Math.round(tile.width) + "x" + Math.round(tile.height)
-        + " term=" + Math.round(term.width) + "x" + Math.round(term.height)
-        + " lines=" + term.lines + " cols=" + term.columns
-        + " sbCur=" + term.scrollbarCurrentValue + " sbMax=" + term.scrollbarMaximum
-        + " hasProc=" + session.hasActiveProcess
-    signal dbgResize(string info)
-    function logState(tag) { tile.dbgResize(tag + " " + tile.dbg) }
 
     // Live theming : présent uniquement avec le fork qmltermwidget-noctalia (slot applyColorSchemeFile).
     readonly property bool liveCapable: (typeof term.applyColorSchemeFile === "function")
@@ -113,8 +103,8 @@ Item {
         // Tant qu'un lancement est en attente, re-déclenche le timer à chaque changement de taille :
         // on ne démarre le programme qu'une fois la taille stabilisée (cf. launchTimer / _launchWhenSized).
         // [DIAG 0.3.8] log de tout resize du terminal (pour traquer l'artefact prompt-en-haut).
-        onWidthChanged: { if (tile._pendingStart) launchTimer.restart(); tile.dbgResize("TERM-RESIZE " + tile.dbg) }
-        onHeightChanged: { if (tile._pendingStart) launchTimer.restart(); tile.dbgResize("TERM-RESIZE " + tile.dbg) }
+        onWidthChanged: if (tile._pendingStart) launchTimer.restart()
+        onHeightChanged: if (tile._pendingStart) launchTimer.restart()
 
         enableBold: true
         enableItalic: true

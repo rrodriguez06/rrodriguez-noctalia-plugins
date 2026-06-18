@@ -156,17 +156,9 @@ Item {
         height: root.deckContentH > 0 ? root.deckContentH : root.cfgHeight * Style.uiScaleRatio
     }
 
-    // [DIAG] écriture fichier centralisée (qs redirige stdout/stderr vers /dev/null).
-    function dlog(m) {
-        Quickshell.execDetached(["sh", "-c", 'printf "%s %s\\n" "$(date +%H:%M:%S.%N)" "$1" >> /tmp/noctalia-deck-debug.log', "sh", m])
-    }
-
     function reclaimTiles() {
-        root.dlog("RECLAIM-called n=" + root.tiles.length)   // [DIAG]
-        for (var i = 0; i < root.tiles.length; i++) {
-            root.tiles[i].logState("RECLAIM")   // [DIAG] état au moment de la fermeture (via dbgResize→dlog)
+        for (var i = 0; i < root.tiles.length; i++)
             root.tiles[i].parent = tileHolder
-        }
     }
 
     // Crée (SANS démarrer) une tuile depuis une entrée de tabsModel, parentée au holder. Le démarrage
@@ -196,7 +188,6 @@ Item {
             if (t.autoRelaunch && (Date.now() - t._startedAt) > t._minLifeMs)
                 root._recreateTileAt(root.tiles.indexOf(t))
         })
-        t.dbgResize.connect(function (info) { root.dlog(info) })   // [DIAG]
         return t
     }
 
@@ -251,10 +242,7 @@ Item {
             root._tileComp.statusChanged.connect(finish)
     }
 
-    Component.onCompleted: {
-        Quickshell.execDetached(["sh", "-c", "echo '=== noctalia-deck session start ===' > /tmp/noctalia-deck-debug.log"])   // [DIAG]
-        root._createTiles()
-    }
+    Component.onCompleted: root._createTiles()
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
     IpcHandler {

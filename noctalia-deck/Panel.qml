@@ -65,12 +65,6 @@ Item {
                 radius: Style.radiusM
                 color: Color.mSurface
 
-                // Rapporte la taille de la zone terminal à Main, qui la STABILISE (debounce) → les tuiles
-                // ne se redimensionnent pas pendant l'animation d'ouverture (termClip les clippe). Aucun
-                // reflow → prompt en bas préservé à la ré-ouverture.
-                onWidthChanged: if (root.mainInstance) root.mainInstance.reportContentSize(width, height)
-                onHeightChanged: if (root.mainInstance) root.mainInstance.reportContentSize(width, height)
-
                 NText {
                     anchors.centerIn: parent
                     visible: !(root.mainInstance && root.mainInstance.depAvailable)
@@ -91,16 +85,14 @@ Item {
         if (!root.mainInstance)
             return
         var ts = root.mainInstance.tiles
-        root.mainInstance.dlog("ATTACH-called n=" + ts.length + " termClip=" + Math.round(termClip.width) + "x" + Math.round(termClip.height))   // [DIAG]
         for (var i = 0; i < ts.length; i++) {
             ts[i].parent = termClip.contentItem
             ts[i].start()   // idempotent ; démarre (différé) à la taille réelle du panel, pas du holder
-            ts[i].logState("ATTACH")   // [DIAG]
         }
         // Restaure l'onglet précédemment sélectionné (survit aux ouvertures/fermetures).
         tabBar.currentIndex = root.mainInstance.currentTab
         root._syncTabs()
-        attachLateTimer.restart()   // [DIAG 0.3.8] état après animation d'ouverture
+        sizeReportTimer.restart()   // mesure la taille stable une fois le panel ouvert
     }
 
     // Affiche uniquement la tuile de l'onglet courant ; les autres tournent en arrière-plan.
@@ -115,15 +107,13 @@ Item {
             Qt.callLater(ts[cur].focusTerminal)
     }
 
-    // [DIAG 0.3.8] re-log l'état des tuiles une fois l'animation d'ouverture terminée.
+    // Mesure la taille de la zone terminal une fois le panel OUVERT et stable, et la rapporte à Main.
+    // CRUCIAL : on ne mesure JAMAIS pendant l'animation de fermeture (termClip rétrécit vers 0), ce qui
+    // figerait deckContentH à une valeur minuscule → double resize du terminal → prompt qui remonte.
     Timer {
-        id: attachLateTimer
+        id: sizeReportTimer
         interval: 600
-        onTriggered: {
-            if (!root.mainInstance) return
-            var ts = root.mainInstance.tiles
-            for (var i = 0; i < ts.length; i++) ts[i].logState("ATTACH-LATE")
-        }
+        onTriggered: if (root.mainInstance && termClip.height > 0) root.mainInstance.reportContentSize(termClip.width, termClip.height)
     }
 
     Component.onCompleted: _attachTiles()
