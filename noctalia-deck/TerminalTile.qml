@@ -80,6 +80,11 @@ Item {
     function copy() { term.copyClipboard() }
     function paste() { term.pasteClipboard() }
 
+    // Force le re-dessin : après le re-parentage (changement de fenêtre), QMLTermWidget ne se repeint
+    // pas tant que rien ne l'invalide (d'où l'écran « vide » jusqu'à un scroll). updateImage() re-récupère
+    // l'image de l'écran du terminal et redessine — slot de base, dispo sans le fork.
+    function refresh() { if (typeof term.updateImage === "function") term.updateImage() }
+
 
     // Live theming : présent uniquement avec le fork qmltermwidget-noctalia (slot applyColorSchemeFile).
     readonly property bool liveCapable: (typeof term.applyColorSchemeFile === "function")

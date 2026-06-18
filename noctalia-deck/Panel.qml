@@ -103,8 +103,10 @@ Item {
         var cur = root.mainInstance.currentTab
         for (var i = 0; i < ts.length; i++)
             ts[i].visible = (i === cur)
-        if (cur >= 0 && cur < ts.length)
+        if (cur >= 0 && cur < ts.length) {
             Qt.callLater(ts[cur].focusTerminal)
+            Qt.callLater(ts[cur].refresh)   // repaint après (ré)affichage / changement d'onglet
+        }
     }
 
     // Mesure la taille de la zone terminal une fois le panel OUVERT et stable, et la rapporte à Main.
@@ -113,7 +115,13 @@ Item {
     Timer {
         id: sizeReportTimer
         interval: 600
-        onTriggered: if (root.mainInstance && termClip.height > 0) root.mainInstance.reportContentSize(termClip.width, termClip.height)
+        onTriggered: {
+            if (!root.mainInstance) return
+            if (termClip.height > 0) root.mainInstance.reportContentSize(termClip.width, termClip.height)
+            // Repaint de sécurité une fois le panel pleinement ouvert (cf. TerminalTile.refresh).
+            var ts = root.mainInstance.tiles, cur = root.mainInstance.currentTab
+            if (cur >= 0 && cur < ts.length) ts[cur].refresh()
+        }
     }
 
     Component.onCompleted: _attachTiles()
