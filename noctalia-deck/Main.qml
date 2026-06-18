@@ -121,6 +121,7 @@ Item {
     property var tiles: []
     property int currentTab: 0
     property bool depAvailable: true
+    property var _tileComp: null   // composant TerminalTile chargé (réutilisé pour « Nouvelle session »)
 
     // Taille réelle de la zone terminal du panel, rapportée par Panel.qml. Le holder s'y cale pour que
     // chaque tuile ait EXACTEMENT la même taille au repos et affichée → AUCUN resize. C'est ce qui évite
@@ -141,50 +142,73 @@ Item {
     }
 
     function reclaimTiles() { for (var i = 0; i < root.tiles.length; i++) root.tiles[i].parent = tileHolder }
+
+    // Crée (SANS démarrer) une tuile depuis une entrée de tabsModel, parentée au holder. Le démarrage
+    // se fait au 1er attachement au panel (Panel._attachTiles) → directement à la taille du panel, sans
+    // resize depuis le holder (pas d'artefact de scroll).
+    function _makeTile(spec) {
+        if (!root._tileComp || root._tileComp.status !== Component.Ready)
+            return null
+        var t = root._tileComp.createObject(tileHolder, {
+            "shellProgram": spec.shellProgram,
+            "shellArgs": spec.shellArgs,
+            "autoRelaunch": spec.autoRelaunch
+        })
+        if (!t)
+            return null
+        t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
+        t.fontSize = Qt.binding(function () { return root.cfgFontSize })
+        t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
+        return t
+    }
+
+    // « Nouvelle session » = VRAIE session fraîche : on RECRÉE la tuile de l'onglet courant (nouveau
+    // shell, dossier par défaut, scrollback vide) et on détruit l'ancienne (son process est tué). Un
+    // simple startShellProgram() ne relancerait pas un shell encore vivant et garderait l'historique.
     function newSession() {
-        var t = (root.currentTab >= 0 && root.currentTab < root.tiles.length) ? root.tiles[root.currentTab] : null
-        if (t) t.restart()
+        var idx = root.currentTab
+        if (idx < 0 || idx >= root.tiles.length)
+            return
+        var old = root.tiles[idx]
+        var t = root._makeTile(root.tabsModel[idx])
+        if (!t)
+            return
+        var arr = root.tiles.slice()
+        arr[idx] = t
+        root.tiles = arr        // → Panel ré-attache et démarre la nouvelle tuile (à la taille du panel)
+        if (old) { old.visible = false; Qt.callLater(function () { old.destroy() }) }
+        root._writeLive()       // theming live de la nouvelle tuile
     }
 
     function _createTiles() {
-        var comp = Qt.createComponent("TerminalTile.qml")
+        root._tileComp = Qt.createComponent("TerminalTile.qml")
         function finish() {
-            if (comp.status === Component.Error) {
+            if (root._tileComp.status === Component.Error) {
                 root.depAvailable = false
                 ToastService.showError(root.pluginApi ? root.pluginApi.tr("error.missingDep")
                                                       : "Noctalia Deck : qmltermwidget manquant (pacman -S qmltermwidget)")
-                Logger.e("NoctaliaDeck", "TerminalTile load error: " + comp.errorString())
+                Logger.e("NoctaliaDeck", "TerminalTile load error: " + root._tileComp.errorString())
                 return
             }
-            if (comp.status !== Component.Ready)
+            if (root._tileComp.status !== Component.Ready)
                 return
             var created = []
             for (var i = 0; i < root.tabsModel.length; i++) {
-                var spec = root.tabsModel[i]
-                var t = comp.createObject(tileHolder, {
-                    "shellProgram": spec.shellProgram,
-                    "shellArgs": spec.shellArgs,
-                    "autoRelaunch": spec.autoRelaunch
-                })
+                var t = root._makeTile(root.tabsModel[i])
                 if (!t) {
                     root.depAvailable = false
                     return
                 }
-                t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
-                t.fontSize = Qt.binding(function () { return root.cfgFontSize })
-                t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
-                // PAS de t.start() ici : la session démarre au 1er attachement au panel (Panel._attachTiles),
-                // donc directement à la taille du panel — aucun resize depuis le holder, aucun artefact de scroll.
                 created.push(t)
             }
             root.tiles = created   // assignation (pas push) → notifie le Panel
             // Si le fork est présent → applique tout de suite les couleurs live du wallpaper.
             root._writeLive()
         }
-        if (comp.status === Component.Ready)
+        if (root._tileComp.status === Component.Ready)
             finish()
         else
-            comp.statusChanged.connect(finish)
+            root._tileComp.statusChanged.connect(finish)
     }
 
     Component.onCompleted: root._createTiles()

@@ -52,16 +52,17 @@ Item {
             session.initialWorkingDirectory = tile.cwd
         if (tile.envv && tile.envv.length > 0)
             session.setEnvironment(tile.envv)
-        // On « arme » seulement : le lancement réel attend que le widget atteigne sa taille FINALE via
-        // onWidthChanged/onHeightChanged (post-layout). Lancer maintenant risquerait de créer le PTY à la
-        // taille transitoire du re-parentage (holder), puis de le redimensionner → artefact de scroll.
+        // On « arme » seulement : launchTimer (re-déclenché à chaque changement de taille) lance le PTY
+        // une fois la taille STABILISÉE → jamais à la taille transitoire du re-parentage (holder) → pas
+        // d'artefact de redimensionnement.
         tile._pendingStart = true
+        launchTimer.restart()
     }
 
     function restart() {
         tile.started = false
         tile._pendingStart = true
-        tile._launchWhenSized()
+        launchTimer.restart()   // délai : laisse aussi une session précédente se terminer proprement
         Qt.callLater(tile.focusTerminal)
     }
 
@@ -110,9 +111,10 @@ Item {
         // donc robuste quand la tuile change de fenêtre (re-parentage par le Panel).
         useFBORendering: false
 
-        // Lance le programme dès que le widget obtient une taille réelle (cf. _launchWhenSized).
-        onWidthChanged: Qt.callLater(tile._launchWhenSized)
-        onHeightChanged: Qt.callLater(tile._launchWhenSized)
+        // Tant qu'un lancement est en attente, re-déclenche le timer à chaque changement de taille :
+        // on ne démarre le programme qu'une fois la taille stabilisée (cf. launchTimer / _launchWhenSized).
+        onWidthChanged: if (tile._pendingStart) launchTimer.restart()
+        onHeightChanged: if (tile._pendingStart) launchTimer.restart()
 
         enableBold: true
         enableItalic: true
@@ -159,6 +161,10 @@ Item {
             Timer { id: hideTimer; interval: 1200; onTriggered: sb.opacity = 0 }
         }
     }
+
+    // Démarre le programme une fois la taille du terminal stabilisée (anti-artefact de resize) et, en
+    // cas de relance, après la fin propre de la session précédente. Voir start()/restart()/_launchWhenSized.
+    Timer { id: launchTimer; interval: 60; onTriggered: tile._launchWhenSized() }
 
     Shortcut { sequence: "Ctrl+Shift+C"; onActivated: term.copyClipboard() }
     Shortcut { sequence: "Ctrl+Shift+V"; onActivated: term.pasteClipboard() }
