@@ -23,6 +23,13 @@ Item {
     property string fontFamily: "monospace"
     property int fontSize: 11
 
+    // Onglet « service » : relance le programme s'il se termine (ex. on quitte btop avec « q »).
+    // Garde anti-spin : on ne relance pas si le process a vécu moins de _minLifeMs (commande absente
+    // / échec immédiat) → l'onglet reste utilisable sans boucler.
+    property bool autoRelaunch: false
+    readonly property int _minLifeMs: 1500
+    property double _startedAt: 0
+
     // --- état ---
     property bool started: false
     readonly property bool alive: tile.started && session.hasActiveProcess
@@ -44,14 +51,24 @@ Item {
             session.initialWorkingDirectory = tile.cwd
         if (tile.envv && tile.envv.length > 0)
             session.setEnvironment(tile.envv)
+        tile._startedAt = Date.now()
         session.startShellProgram()
         tile.started = true
     }
 
     function restart() {
+        tile._startedAt = Date.now()
         session.startShellProgram()
         tile.started = true
         Qt.callLater(tile.focusTerminal)
+    }
+
+    // Fin du process : signale toujours `finished()` (comportement shell inchangé), puis relance
+    // si onglet service ET process suffisamment vivace (sinon garde anti-spin).
+    function _onFinished() {
+        tile.finished()
+        if (tile.autoRelaunch && tile.started && (Date.now() - tile._startedAt) > tile._minLifeMs)
+            tile.restart()
     }
 
     function focusTerminal() { term.forceActiveFocus() }
@@ -83,7 +100,7 @@ Item {
 
         session: QMLTermSession {
             id: session
-            onFinished: tile.finished()
+            onFinished: tile._onFinished()
             onTermLostFocus: tile.lostFocus()
         }
 

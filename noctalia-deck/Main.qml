@@ -32,6 +32,7 @@ Item {
     readonly property string cfgFontFamily: (s && s.fontFamily && s.fontFamily.length > 0) ? s.fontFamily : "monospace"
     readonly property int cfgFontSize: (s && s.fontSize) ? s.fontSize : 11
     readonly property string cfgShell: (s && s.shellProgram) ? s.shellProgram : ""
+    readonly property string cfgProcMonCommand: (s && s.procMonCommand && s.procMonCommand.length > 0) ? s.procMonCommand : "btop"
     readonly property bool cfgShowToasts: (s && s.showToasts !== undefined) ? s.showToasts : true
 
     // ── Schéma de base (propriété colorScheme du widget) ─────────────────────
@@ -77,11 +78,17 @@ Item {
     }
 
     // ── Theming live (fork uniquement) ───────────────────────────────────────
-    readonly property bool liveCapable: root.tileItem ? root.tileItem.liveCapable : false
+    readonly property bool liveCapable: (root.tiles.length > 0) ? root.tiles[0].liveCapable : false
 
     Process {
         id: liveWriter
-        onExited: code => { if (code === 0 && root.tileItem) root.tileItem.applySchemeFile(root.livePath) }
+        // Applique le .colorscheme fraîchement écrit à TOUTES les tuiles (shell, procmon, …).
+        onExited: code => {
+            if (code !== 0)
+                return
+            for (var i = 0; i < root.tiles.length; i++)
+                root.tiles[i].applySchemeFile(root.livePath)
+        }
     }
     function _writeLive() {
         if (root.cfgThemeMode !== "noctalia" || !root.liveCapable)
@@ -98,14 +105,30 @@ Item {
     onCfgThemeModeChanged: if (root.liveCapable && cfgThemeMode === "noctalia") regenDebounce.restart()
     Timer { id: regenDebounce; interval: 150; onTriggered: root._writeLive() }
 
-    // ── La tuile persistante ─────────────────────────────────────────────────
-    property var tileItem: null
+    // ── Onglets du deck ──────────────────────────────────────────────────────
+    // Modèle déclaratif : chaque entrée = une tuile persistante. Socle pour de futurs services.
+    //   • shell   : $SHELL (vide ⇒ défaut QMLTermSession), pas d'auto-relance.
+    //   • procmon : moniteur de processus (btop par défaut, configurable). Lancé via le shell pour
+    //               résoudre le PATH et permettre une ligne de commande arbitraire ; auto-relance si
+    //               on le quitte (ex. « q » dans btop). Couleurs gérées par Noctalia (template btop).
+    readonly property string _shell: (Quickshell.env("SHELL") && Quickshell.env("SHELL").length > 0) ? Quickshell.env("SHELL") : "/bin/sh"
+    readonly property var tabsModel: [
+        { "id": "shell",   "icon": "terminal", "shellProgram": root.cfgShell, "shellArgs": [],                                       "autoRelaunch": false },
+        { "id": "procmon", "icon": "activity", "shellProgram": root._shell,   "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  }
+    ]
+
+    // ── Les tuiles persistantes ──────────────────────────────────────────────
+    property var tiles: []
+    property int currentTab: 0
     property bool depAvailable: true
 
-    function reclaimTile() { if (root.tileItem) root.tileItem.parent = root }
-    function newSession() { if (root.tileItem) root.tileItem.restart() }
+    function reclaimTiles() { for (var i = 0; i < root.tiles.length; i++) root.tiles[i].parent = root }
+    function newSession() {
+        var t = (root.currentTab >= 0 && root.currentTab < root.tiles.length) ? root.tiles[root.currentTab] : null
+        if (t) t.restart()
+    }
 
-    function _createTile() {
+    function _createTiles() {
         var comp = Qt.createComponent("TerminalTile.qml")
         function finish() {
             if (comp.status === Component.Error) {
@@ -117,16 +140,25 @@ Item {
             }
             if (comp.status !== Component.Ready)
                 return
-            var t = comp.createObject(root, { "shellProgram": root.cfgShell })
-            if (!t) {
-                root.depAvailable = false
-                return
+            var created = []
+            for (var i = 0; i < root.tabsModel.length; i++) {
+                var spec = root.tabsModel[i]
+                var t = comp.createObject(root, {
+                    "shellProgram": spec.shellProgram,
+                    "shellArgs": spec.shellArgs,
+                    "autoRelaunch": spec.autoRelaunch
+                })
+                if (!t) {
+                    root.depAvailable = false
+                    return
+                }
+                t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
+                t.fontSize = Qt.binding(function () { return root.cfgFontSize })
+                t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
+                t.start()
+                created.push(t)
             }
-            t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
-            t.fontSize = Qt.binding(function () { return root.cfgFontSize })
-            t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
-            root.tileItem = t
-            t.start()
+            root.tiles = created   // assignation (pas push) → notifie le Panel
             // Si le fork est présent → applique tout de suite les couleurs live du wallpaper.
             root._writeLive()
         }
@@ -136,7 +168,7 @@ Item {
             comp.statusChanged.connect(finish)
     }
 
-    Component.onCompleted: root._createTile()
+    Component.onCompleted: root._createTiles()
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
     IpcHandler {

@@ -16,6 +16,7 @@ ColumnLayout {
     property string fontFamily_: ""
     property int fontSize_: 11
     property string shellProgram_: ""
+    property string procMonCommand_: "btop"
     property bool showToasts_: true
 
     property bool _loaded: false
@@ -32,6 +33,7 @@ ColumnLayout {
         fontFamily_ = s.fontFamily ?? ""
         fontSize_ = s.fontSize ?? 11
         shellProgram_ = s.shellProgram ?? ""
+        procMonCommand_ = s.procMonCommand ?? "btop"
         showToasts_ = s.showToasts ?? true
         _loaded = true
     }
@@ -50,6 +52,7 @@ ColumnLayout {
         s.fontFamily = root.fontFamily_
         s.fontSize = root.fontSize_
         s.shellProgram = root.shellProgram_
+        s.procMonCommand = root.procMonCommand_
         s.showToasts = root.showToasts_
         pluginApi.saveSettings()
     }
@@ -150,6 +153,18 @@ ColumnLayout {
                     text: root.shellProgram_
                     placeholderText: "$SHELL"
                     onEditingFinished: { root.shellProgram_ = text; saveSettings() }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.marginXS
+                NLabel { label: pluginApi?.tr("settings.procMonCommand"); description: pluginApi?.tr("settings.procMonCommandDesc") }
+                NTextInput {
+                    Layout.fillWidth: true
+                    text: root.procMonCommand_
+                    placeholderText: "btop"
+                    onEditingFinished: { root.procMonCommand_ = text; saveSettings() }
                 }
             }
             NToggle {

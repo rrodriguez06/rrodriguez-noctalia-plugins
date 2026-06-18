@@ -1,7 +1,7 @@
 {
   "id": "noctalia-deck",
   "name": "Noctalia Deck",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "minNoctaliaVersion": "4.5.0",
   "author": "rrodriguez06",
   "license": "MIT",
@@ -28,6 +28,7 @@
       "fontFamily": "",
       "fontSize": 11,
       "shellProgram": "",
+      "procMonCommand": "btop",
       "showToasts": true
     }
   }

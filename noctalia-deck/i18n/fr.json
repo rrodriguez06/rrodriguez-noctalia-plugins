@@ -9,6 +9,10 @@
     "bar": {
         "toggle": "Afficher / masquer le terminal"
     },
+    "tab": {
+        "shell": "Shell",
+        "procmon": "Moniteur"
+    },
     "error": {
         "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",
         "missingDepLong": "Noctalia Deck nécessite le paquet « qmltermwidget » :\n\n  pacman -S qmltermwidget\n\npuis redémarrez le shell.",
@@ -37,6 +41,8 @@
         "heightDesc": "Hauteur du terminal.",
         "shellProgram": "Programme shell",
         "shellProgramDesc": "Vide = $SHELL. Les futures tuiles lanceront d'autres commandes ici (ex. claude).",
+        "procMonCommand": "Moniteur de processus",
+        "procMonCommandDesc": "Commande lancée dans l'onglet « Moniteur » (ex. btop, htop). Vide = btop. Prend effet au prochain redémarrage du shell.",
         "showToasts": "Notifications",
         "showToastsDesc": "Affiche un toast quand la session shell se termine.",
         "themeMode": "Source des couleurs",

@@ -1,12 +1,17 @@
 import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Widgets
 import qs.Commons
 import qs.Widgets
 
-// Contenu du panel natif Noctalia. Ne POSSÈDE PAS le terminal : il re-parente la tuile persistante
-// de Main le temps de l'affichage (Component.onCompleted), et la rend à Main à la destruction
-// (Component.onDestruction → reclaimTile). Le panel natif gère attache-barre, coins, focus, clic-dehors.
+// Contenu du panel natif Noctalia. Ne POSSÈDE PAS les tuiles : il re-parente les tuiles persistantes
+// de Main le temps de l'affichage (Component.onCompleted), et les rend à Main à la destruction
+// (Component.onDestruction → reclaimTiles). Le panel natif gère attache-barre, coins, focus, clic-dehors.
+//
+// Multi-onglets : une NTabBar (composants Noctalia) pilote l'onglet courant (mainInstance.currentTab,
+// persistant), et toutes les tuiles sont empilées dans le ClippingRectangle arrondi — seule celle de
+// l'onglet courant est visible/focus.
 Item {
     id: root
     property var pluginApi: null
@@ -26,41 +31,88 @@ Item {
         id: bg
         anchors.fill: parent
 
-        // Le terminal est inséré ici, avec une petite marge intérieure pour ne pas déborder du fond
-        // arrondi natif, et clippé en arrondi (radius) pour coller à l'esthétique Noctalia.
-        ClippingRectangle {
-            id: termClip
+        ColumnLayout {
             anchors.fill: parent
             anchors.margins: Style.marginS
-            radius: Style.radiusM
-            color: Color.mSurface
+            spacing: Style.marginS
 
-            NText {
-                anchors.centerIn: parent
-                visible: !(root.mainInstance && root.mainInstance.depAvailable)
-                width: parent.width - Style.marginXL * 2
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                color: Color.mOnSurface
-                text: root.pluginApi ? root.pluginApi.tr("error.missingDepLong")
-                                     : "qmltermwidget requis :\n  pacman -S qmltermwidget\npuis redémarrez le shell."
+            // ── Barre d'onglets (générée depuis tabsModel) ───────────────────────
+            NTabBar {
+                id: tabBar
+                Layout.fillWidth: true
+                distributeEvenly: true
+                visible: root.mainInstance && root.mainInstance.depAvailable && root.mainInstance.tiles.length > 1
+
+                onCurrentIndexChanged: if (root.mainInstance) root.mainInstance.currentTab = currentIndex
+
+                Repeater {
+                    model: root.mainInstance ? root.mainInstance.tabsModel : []
+                    NTabButton {
+                        icon: modelData.icon
+                        text: root.pluginApi ? root.pluginApi.tr("tab." + modelData.id) : modelData.id
+                        pointSize: Style.fontSizeM
+                        tabIndex: index
+                        checked: tabBar.currentIndex === index
+                    }
+                }
+            }
+
+            // ── Zone terminal : toutes les tuiles empilées, arrondies ────────────
+            ClippingRectangle {
+                id: termClip
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: Style.radiusM
+                color: Color.mSurface
+
+                NText {
+                    anchors.centerIn: parent
+                    visible: !(root.mainInstance && root.mainInstance.depAvailable)
+                    width: parent.width - Style.marginXL * 2
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    color: Color.mOnSurface
+                    text: root.pluginApi ? root.pluginApi.tr("error.missingDepLong")
+                                         : "qmltermwidget requis :\n  pacman -S qmltermwidget\npuis redémarrez le shell."
+                }
             }
         }
     }
 
-    function _attachTile() {
-        var t = root.mainInstance ? root.mainInstance.tileItem : null
-        if (t) {
-            // IMPORTANT : re-parenter dans le contentItem interne de ClippingRectangle (et non sa
-            // racine), sinon la tuile n'est pas capturée par le ShaderEffectSource → pas d'arrondi.
-            t.parent = termClip.contentItem
-            Qt.callLater(t.focusTerminal)
-        }
+    // Re-parente toutes les tuiles dans le contentItem du ClippingRectangle (indispensable pour
+    // l'arrondi : sinon non capturé par le ShaderEffectSource), puis sync visibilité/focus.
+    function _attachTiles() {
+        if (!root.mainInstance)
+            return
+        var ts = root.mainInstance.tiles
+        for (var i = 0; i < ts.length; i++)
+            ts[i].parent = termClip.contentItem
+        // Restaure l'onglet précédemment sélectionné (survit aux ouvertures/fermetures).
+        tabBar.currentIndex = root.mainInstance.currentTab
+        root._syncTabs()
     }
 
-    Component.onCompleted: _attachTile()
-    onMainInstanceChanged: if (mainInstance) _attachTile()
+    // Affiche uniquement la tuile de l'onglet courant ; les autres tournent en arrière-plan.
+    function _syncTabs() {
+        if (!root.mainInstance)
+            return
+        var ts = root.mainInstance.tiles
+        var cur = root.mainInstance.currentTab
+        for (var i = 0; i < ts.length; i++)
+            ts[i].visible = (i === cur)
+        if (cur >= 0 && cur < ts.length)
+            Qt.callLater(ts[cur].focusTerminal)
+    }
 
-    // Rendre la tuile à Main AVANT que ce panel ne soit détruit (sinon parent visuel pendouille).
-    Component.onDestruction: if (root.mainInstance) root.mainInstance.reclaimTile()
+    Component.onCompleted: _attachTiles()
+    onMainInstanceChanged: if (mainInstance) _attachTiles()
+
+    Connections {
+        target: root.mainInstance
+        function onTilesChanged() { root._attachTiles() }
+        function onCurrentTabChanged() { root._syncTabs() }
+    }
+
+    // Rendre les tuiles à Main AVANT que ce panel ne soit détruit (sinon parent visuel pendouille).
+    Component.onDestruction: if (root.mainInstance) root.mainInstance.reclaimTiles()
 }

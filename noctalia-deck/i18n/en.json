@@ -9,6 +9,10 @@
     "bar": {
         "toggle": "Toggle terminal"
     },
+    "tab": {
+        "shell": "Shell",
+        "procmon": "Monitor"
+    },
     "error": {
         "missingDep": "qmltermwidget is missing (pacman -S qmltermwidget)",
         "missingDepLong": "Noctalia Deck needs the 'qmltermwidget' package:\n\n  pacman -S qmltermwidget\n\nthen restart the shell.",
@@ -37,6 +41,8 @@
         "heightDesc": "Terminal height.",
         "shellProgram": "Shell program",
         "shellProgramDesc": "Leave empty to use $SHELL. Future tiles will run other commands here (e.g. claude).",
+        "procMonCommand": "Process monitor",
+        "procMonCommandDesc": "Command run in the Monitor tab (e.g. btop, htop). Empty = btop. Takes effect on the next shell restart.",
         "showToasts": "Notifications",
         "showToastsDesc": "Show a toast when the shell session ends.",
         "themeMode": "Color source",
