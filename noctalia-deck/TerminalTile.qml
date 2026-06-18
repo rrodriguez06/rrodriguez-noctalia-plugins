@@ -83,14 +83,15 @@ Item {
     // Force le re-dessin : après le re-parentage (changement de fenêtre), QMLTermWidget ne se repeint
     // pas tant que rien ne l'invalide (d'où l'écran « vide » jusqu'à un scroll). updateImage() re-récupère
     // l'image de l'écran du terminal et redessine — slot de base, dispo sans le fork.
-    // Force un re-dessin COMPLET. updateImage() ne repeint que les cellules « sales » → après le
-    // re-parentage (changement de fenêtre), seule une portion est redessinée (d'où l'affichage partiel
-    // jusqu'à un scroll). On mime donc un scroll (haut puis bas, position nette inchangée) : ça rend
-    // toutes les cellules sales → repaint complet. C'est exactement ce que fait le scroll manuel.
+    // Force un re-dessin COMPLET après le re-parentage (changement de fenêtre) : sinon updateImage()
+    // ne repeint que les cellules « sales » → affichage partiel jusqu'à un scroll. forceRedraw() (fork)
+    // fait un update() complet, sans effet de bord et même quand ce n'est pas scrollable. Fallback
+    // updateImage() sur qmltermwidget stock (repaint partiel, mais sans injecter de séquences clavier).
     function refresh() {
-        term.simulateWheel(10, 10, 0, 0, Qt.point(0, 120))    // haut
-        term.simulateWheel(10, 10, 0, 0, Qt.point(0, -120))   // bas (retour)
-        if (typeof term.updateImage === "function") term.updateImage()
+        if (typeof term.forceRedraw === "function")
+            term.forceRedraw()
+        else if (typeof term.updateImage === "function")
+            term.updateImage()
     }
 
 
