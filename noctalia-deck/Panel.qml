@@ -65,6 +65,11 @@ Item {
                 radius: Style.radiusM
                 color: Color.mSurface
 
+                // Rapporte la taille réelle de la zone terminal à Main → le holder s'y cale, donc les
+                // tuiles ont la même taille au repos et affichées : aucun resize (pas d'artefact de scroll).
+                onWidthChanged: if (root.mainInstance && width > 0) root.mainInstance.deckContentW = width
+                onHeightChanged: if (root.mainInstance && height > 0) root.mainInstance.deckContentH = height
+
                 NText {
                     anchors.centerIn: parent
                     visible: !(root.mainInstance && root.mainInstance.depAvailable)
@@ -85,8 +90,10 @@ Item {
         if (!root.mainInstance)
             return
         var ts = root.mainInstance.tiles
-        for (var i = 0; i < ts.length; i++)
+        for (var i = 0; i < ts.length; i++) {
             ts[i].parent = termClip.contentItem
+            ts[i].start()   // idempotent ; démarre (différé) à la taille réelle du panel, pas du holder
+        }
         // Restaure l'onglet précédemment sélectionné (survit aux ouvertures/fermetures).
         tabBar.currentIndex = root.mainInstance.currentTab
         root._syncTabs()

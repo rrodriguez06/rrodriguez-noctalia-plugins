@@ -70,26 +70,6 @@ au prochain redémarrage du shell), notifications.
 
 **Apparence** : source des couleurs, police, taille.
 
-### Astuce — rc shell spécifique au deck
-
-Le shell du deck est lancé avec la variable d'environnement **`NOCTALIA_DECK=1`**. Ton `~/.zshrc`
-(ou rc shell) peut s'en servir pour n'adapter l'affichage **que** dans le deck — par exemple aligner le
-bandeau (fastfetch) + le prompt en bas de l'écran, pour un rendu plus propre au démarrage. L'idée :
-padder de **exactement** `LINES − hauteur_du_bandeau − prompt` lignes vides (et non `$LINES` : sinon on
-empile du scrollback vide au-dessus). Si le bandeau ne tient pas, on ne padde pas (« descend jusqu'où ça peut ») :
-
-```zsh
-if [[ -n "$NOCTALIA_DECK" ]]; then
-  out="$(fastfetch 2>/dev/null)"            # logo ASCII dans le deck → capture sûre
-  blines=("${(@f)out}")
-  pad=$(( LINES - ${#blines} - 2 ))         # -2 ≈ lignes du prompt
-  (( pad > 0 )) && printf '\n%.0s' {1..$pad}
-  print -r -- "$out"
-else
-  fastfetch                                  # terminaux normaux : inchangé
-fi
-```
-
 ### Couleurs
 
 - **Thème Noctalia (auto)** — génère un `.colorscheme` depuis la palette Noctalia (fond, texte,

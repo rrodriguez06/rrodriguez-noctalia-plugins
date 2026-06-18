@@ -52,8 +52,10 @@ Item {
             session.initialWorkingDirectory = tile.cwd
         if (tile.envv && tile.envv.length > 0)
             session.setEnvironment(tile.envv)
+        // On « arme » seulement : le lancement réel attend que le widget atteigne sa taille FINALE via
+        // onWidthChanged/onHeightChanged (post-layout). Lancer maintenant risquerait de créer le PTY à la
+        // taille transitoire du re-parentage (holder), puis de le redimensionner → artefact de scroll.
         tile._pendingStart = true
-        tile._launchWhenSized()
     }
 
     function restart() {

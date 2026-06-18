@@ -112,12 +112,9 @@ Item {
     //               résoudre le PATH et permettre une ligne de commande arbitraire ; auto-relance si
     //               on le quitte (ex. « q » dans btop). Couleurs gérées par Noctalia (template btop).
     readonly property string _shell: (Quickshell.env("SHELL") && Quickshell.env("SHELL").length > 0) ? Quickshell.env("SHELL") : "/bin/sh"
-    // Shell du deck lancé via `env NOCTALIA_DECK=1 <shell>` : ajoute un marqueur (sans toucher au reste
-    // de l'environnement) que le .zshrc lit pour aligner le bandeau/prompt en bas (cf. README).
-    readonly property string _shellProg: (root.cfgShell && root.cfgShell.length > 0) ? root.cfgShell : root._shell
     readonly property var tabsModel: [
-        { "id": "shell",   "icon": "terminal", "shellProgram": "/usr/bin/env", "shellArgs": ["NOCTALIA_DECK=1", root._shellProg], "autoRelaunch": false },
-        { "id": "procmon", "icon": "activity", "shellProgram": root._shell,    "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  }
+        { "id": "shell",   "icon": "terminal", "shellProgram": root.cfgShell, "shellArgs": [],                                       "autoRelaunch": false },
+        { "id": "procmon", "icon": "activity", "shellProgram": root._shell,   "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  }
     ]
 
     // ── Les tuiles persistantes ──────────────────────────────────────────────
@@ -125,15 +122,22 @@ Item {
     property int currentTab: 0
     property bool depAvailable: true
 
-    // Conteneur « au repos » des tuiles : invisible mais DIMENSIONNÉ (≈ taille du panel), jamais 0×0.
-    // Indispensable pour les TUIs (btop) : re-parenter vers un parent 0×0 pousserait un winsize 0 au PTY
-    // → btop planterait (« Failed to get size of terminal! »). Le Panel re-parente les tuiles dans sa
-    // zone visible à l'ouverture et les rend ici à la fermeture.
+    // Taille réelle de la zone terminal du panel, rapportée par Panel.qml. Le holder s'y cale pour que
+    // chaque tuile ait EXACTEMENT la même taille au repos et affichée → AUCUN resize. C'est ce qui évite
+    // l'artefact de scroll au démarrage : la session shell se rend une seule fois, à la bonne taille,
+    // sans lignes vides résiduelles (prompt en bas, pas de scroll sous le prompt).
+    property real deckContentW: 0
+    property real deckContentH: 0
+
+    // Conteneur « au repos » des tuiles : invisible mais DIMENSIONNÉ (jamais 0×0), calé sur la taille du
+    // panel. Indispensable aussi pour les TUIs (btop) : re-parenter vers un parent 0×0 pousserait un
+    // winsize 0 au PTY → btop planterait (« Failed to get size of terminal! »). Le Panel re-parente les
+    // tuiles dans sa zone visible à l'ouverture et les rend ici à la fermeture.
     Item {
         id: tileHolder
         visible: false
-        width: root.cfgWidth * Style.uiScaleRatio
-        height: root.cfgHeight * Style.uiScaleRatio
+        width: root.deckContentW > 0 ? root.deckContentW : root.cfgWidth * Style.uiScaleRatio
+        height: root.deckContentH > 0 ? root.deckContentH : root.cfgHeight * Style.uiScaleRatio
     }
 
     function reclaimTiles() { for (var i = 0; i < root.tiles.length; i++) root.tiles[i].parent = tileHolder }
@@ -169,7 +173,8 @@ Item {
                 t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
                 t.fontSize = Qt.binding(function () { return root.cfgFontSize })
                 t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
-                t.start()
+                // PAS de t.start() ici : la session démarre au 1er attachement au panel (Panel._attachTiles),
+                // donc directement à la taille du panel — aucun resize depuis le holder, aucun artefact de scroll.
                 created.push(t)
             }
             root.tiles = created   // assignation (pas push) → notifie le Panel
