@@ -1,7 +1,7 @@
 import QtQuick
 import qs.Commons
 
-// Commande du launcher Noctalia : `>deck` bascule le terminal flottant.
+// Commande du launcher Noctalia : `>deck` ouvre/ferme le terminal flottant.
 Item {
     id: root
     property var pluginApi: null
@@ -20,8 +20,8 @@ Item {
                 "icon": "terminal",
                 "isTablerIcon": true,
                 "onActivate": function () {
-                    if (root.pluginApi && root.pluginApi.mainInstance)
-                        root.pluginApi.mainInstance.toggle()
+                    if (root.pluginApi)
+                        root.pluginApi.withCurrentScreen(s => root.pluginApi.togglePanel(s))
                 }
             }
         ]

@@ -3,13 +3,18 @@ import qs.Commons
 import QMLTermWidget 2.0
 
 // Tuile « terminal » : encapsule un vrai émulateur (PTY) via QMLTermWidget + QMLTermSession.
-// C'est LE point d'extensibilité : une future tuile « claude » = même composant avec
-// command:"claude". Le shell ne démarre qu'à l'appel explicite de start() (après que Main ait
-// poussé les propriétés), pour garantir que shellProgram/cwd/env sont pris en compte.
+//
+// IMPORTANT — persistance : cet objet est créé et possédé par Main.qml (parent QObject persistant).
+// Le Panel ne fait que le RE-PARENTER visuellement (parent = sa zone de contenu) à l'ouverture, et
+// le rend à Main à la fermeture. L'objet survit donc à la destruction du panel → session + scrollback
+// intacts, sans tmux. `useFBORendering: false` (rendu CPU) sécurise le déplacement entre fenêtres.
+//
+// C'est aussi LE point d'extensibilité : une future tuile « claude » = même composant avec command:"claude".
 Item {
     id: tile
+    anchors.fill: parent   // remplit le parent courant (Main au repos, la zone du panel quand affiché)
 
-    // --- entrées (poussées par Main au chargement) ---
+    // --- entrées (poussées par Main) ---
     property string shellProgram: ""        // vide => $SHELL
     property var shellArgs: []
     property string cwd: ""
@@ -23,7 +28,7 @@ Item {
     readonly property bool alive: tile.started && session.hasActiveProcess
     readonly property string foregroundName: session.foregroundProcessName
 
-    // --- signaux vers Main ---
+    // --- signaux ---
     signal finished()
     signal lostFocus()
 
@@ -41,10 +46,8 @@ Item {
             session.setEnvironment(tile.envv)
         session.startShellProgram()
         tile.started = true
-        Qt.callLater(tile.focusTerminal)
     }
 
-    // Relance une session (typiquement après que le shell ait quitté).
     function restart() {
         session.startShellProgram()
         tile.started = true
@@ -64,6 +67,10 @@ Item {
         font.pointSize: tile.fontSize
         colorScheme: tile.colorScheme
 
+        // Rendu CPU (QImage) plutôt que FBO/GL : indépendant du contexte de la fenêtre,
+        // donc robuste quand la tuile change de fenêtre (re-parentage par le Panel).
+        useFBORendering: false
+
         enableBold: true
         enableItalic: true
         blinkingCursor: true
@@ -74,7 +81,6 @@ Item {
             onTermLostFocus: tile.lostFocus()
         }
 
-        // Molette → scroll dans l'historique.
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.NoButton
@@ -96,7 +102,6 @@ Item {
         }
     }
 
-    // Raccourcis copier/coller façon terminal.
     Shortcut { sequence: "Ctrl+Shift+C"; onActivated: term.copyClipboard() }
     Shortcut { sequence: "Ctrl+Shift+V"; onActivated: term.pasteClipboard() }
 }

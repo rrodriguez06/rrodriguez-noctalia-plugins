@@ -7,8 +7,7 @@
         "settings": "Réglages"
     },
     "bar": {
-        "show": "Afficher le terminal",
-        "hide": "Masquer le terminal"
+        "toggle": "Afficher / masquer le terminal"
     },
     "error": {
         "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",
@@ -27,22 +26,18 @@
             "window": "Fenêtre",
             "appearance": "Apparence"
         },
+        "position": "Position",
+        "positionDesc": "« Attaché » déroule sous le widget qui l'ouvre ; « centré » s'affiche centré sous la barre.",
+        "posAttached": "Attaché au widget",
+        "posCentered": "Centré",
         "width": "Largeur",
-        "widthDesc": "Largeur de la fenêtre flottante.",
+        "widthDesc": "Largeur du terminal.",
         "height": "Hauteur",
-        "heightDesc": "Hauteur de la fenêtre flottante.",
-        "topMargin": "Marge haute",
-        "topMarginDesc": "Espace sous le bord haut — à régler pour passer sous ta barre.",
-        "focusMode": "Focus clavier",
-        "focusModeDesc": "« À la demande » garde les keybinds Hyprland actifs ; « Exclusif » permet de taper immédiatement après le toggle.",
-        "focusOndemand": "À la demande (focus au clic)",
-        "focusExclusive": "Exclusif (taper tout de suite)",
-        "closeOnFocusLost": "Fermer à la perte de focus",
-        "closeOnFocusLostDesc": "Masque le terminal automatiquement quand il perd le focus clavier.",
-        "showToasts": "Notifications",
-        "showToastsDesc": "Affiche un toast quand la session shell se termine.",
+        "heightDesc": "Hauteur du terminal.",
         "shellProgram": "Programme shell",
         "shellProgramDesc": "Vide = $SHELL. Les futures tuiles lanceront d'autres commandes ici (ex. claude).",
+        "showToasts": "Notifications",
+        "showToastsDesc": "Affiche un toast quand la session shell se termine.",
         "themeMode": "Source des couleurs",
         "themeModeDesc": "Caler sur le thème global Noctalia (suit clair/sombre) ou choisir un schéma terminal fixe.",
         "themeNoctalia": "Thème Noctalia (auto)",

@@ -5,7 +5,7 @@ import qs.Widgets
 import qs.Modules.Bar.Extras
 import qs.Services.UI
 
-// Pastille de barre : bascule le terminal flottant. L'icône reflète l'état (ouvert / process actif).
+// Pastille de barre : ouvre/ferme le terminal flottant (panel natif, attaché à la barre).
 Item {
     id: root
     property ShellScreen screen
@@ -16,27 +16,20 @@ Item {
     property var pluginApi: null
 
     readonly property var main: pluginApi?.mainInstance ?? null
-    readonly property bool deckVisible: main ? main.deckVisible : false
     readonly property bool depAvailable: main ? main.depAvailable : true
 
     implicitWidth: pill.width
     implicitHeight: pill.height
-
-    function tip() {
-        if (!depAvailable)
-            return pluginApi ? pluginApi.tr("error.missingDep") : "qmltermwidget manquant"
-        return deckVisible ? (pluginApi ? pluginApi.tr("bar.hide") : "Masquer le terminal")
-                           : (pluginApi ? pluginApi.tr("bar.show") : "Afficher le terminal")
-    }
 
     BarPill {
         id: pill
         screen: root.screen
         oppositeDirection: BarService.getPillDirection(root)
         forceClose: true
-        icon: root.deckVisible ? "terminal-2" : "terminal"
-        tooltipText: root.tip()
-        onClicked: if (root.main) root.main.toggle()
+        icon: "terminal"
+        tooltipText: root.depAvailable ? (pluginApi ? pluginApi.tr("bar.toggle") : "Terminal")
+                                       : (pluginApi ? pluginApi.tr("error.missingDep") : "qmltermwidget manquant")
+        onClicked: if (root.pluginApi) root.pluginApi.togglePanel(root.screen, pill)
         onRightClicked: PanelService.showContextMenu(contextMenu, root, root.screen)
     }
 

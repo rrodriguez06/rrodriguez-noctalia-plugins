@@ -8,17 +8,14 @@ ColumnLayout {
     property var pluginApi: null
     spacing: Style.marginM
 
-    // Copie locale éditable.
     property int width_: 900
     property int height_: 480
-    property int topMargin_: 40
+    property string position_: "attached"
     property string themeMode_: "noctalia"
     property string schemeName_: "Solarized"
     property string fontFamily_: ""
     property int fontSize_: 11
-    property string focusMode_: "ondemand"
     property string shellProgram_: ""
-    property bool closeOnFocusLost_: false
     property bool showToasts_: true
 
     property bool _loaded: false
@@ -29,14 +26,12 @@ ColumnLayout {
         var s = pluginApi.pluginSettings
         width_ = s.width ?? 900
         height_ = s.height ?? 480
-        topMargin_ = s.topMargin ?? 40
+        position_ = s.position ?? "attached"
         themeMode_ = s.themeMode ?? "noctalia"
         schemeName_ = s.schemeName ?? "Solarized"
         fontFamily_ = s.fontFamily ?? ""
         fontSize_ = s.fontSize ?? 11
-        focusMode_ = s.keyboardFocusMode ?? "ondemand"
         shellProgram_ = s.shellProgram ?? ""
-        closeOnFocusLost_ = s.closeOnFocusLost ?? false
         showToasts_ = s.showToasts ?? true
         _loaded = true
     }
@@ -49,14 +44,12 @@ ColumnLayout {
         var s = pluginApi.pluginSettings
         s.width = root.width_
         s.height = root.height_
-        s.topMargin = root.topMargin_
+        s.position = root.position_
         s.themeMode = root.themeMode_
         s.schemeName = root.schemeName_
         s.fontFamily = root.fontFamily_
         s.fontSize = root.fontSize_
-        s.keyboardFocusMode = root.focusMode_
         s.shellProgram = root.shellProgram_
-        s.closeOnFocusLost = root.closeOnFocusLost_
         s.showToasts = root.showToasts_
         pluginApi.saveSettings()
     }
@@ -77,7 +70,6 @@ ColumnLayout {
         { "key": "cool-retro-term", "name": "Cool Retro Term" }
     ]
 
-    // ── Onglets ──────────────────────────────────────────────────────────────
     NTabBar {
         id: tabBar
         Layout.fillWidth: true
@@ -112,6 +104,21 @@ ColumnLayout {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Style.marginXS
+                NLabel { label: pluginApi?.tr("settings.position"); description: pluginApi?.tr("settings.positionDesc") }
+                NComboBox {
+                    Layout.fillWidth: true
+                    model: [
+                        { "key": "attached", "name": pluginApi?.tr("settings.posAttached") ?? "Attached to the widget" },
+                        { "key": "centered", "name": pluginApi?.tr("settings.posCentered") ?? "Centered" }
+                    ]
+                    currentKey: root.position_
+                    onSelected: (key) => { root.position_ = key; saveSettings() }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.marginXS
                 NLabel { label: pluginApi?.tr("settings.width"); description: pluginApi?.tr("settings.widthDesc") + " (" + root.width_ + " px)" }
                 NSlider {
                     Layout.fillWidth: true
@@ -131,48 +138,6 @@ ColumnLayout {
                     onValueChanged: { root.height_ = value; saveSettings() }
                 }
             }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Style.marginXS
-                NLabel { label: pluginApi?.tr("settings.topMargin"); description: pluginApi?.tr("settings.topMarginDesc") + " (" + root.topMargin_ + " px)" }
-                NSlider {
-                    Layout.fillWidth: true
-                    from: 0; to: 200; stepSize: 2
-                    value: root.topMargin_
-                    onValueChanged: { root.topMargin_ = value; saveSettings() }
-                }
-            }
-
-            NDivider { Layout.fillWidth: true; Layout.topMargin: Style.marginXS; Layout.bottomMargin: Style.marginXS }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Style.marginXS
-                NLabel { label: pluginApi?.tr("settings.focusMode"); description: pluginApi?.tr("settings.focusModeDesc") }
-                NComboBox {
-                    Layout.fillWidth: true
-                    model: [
-                        { "key": "ondemand", "name": pluginApi?.tr("settings.focusOndemand") ?? "On demand" },
-                        { "key": "exclusive", "name": pluginApi?.tr("settings.focusExclusive") ?? "Exclusive" }
-                    ]
-                    currentKey: root.focusMode_
-                    onSelected: (key) => { root.focusMode_ = key; saveSettings() }
-                }
-            }
-            NToggle {
-                Layout.fillWidth: true
-                label: pluginApi?.tr("settings.closeOnFocusLost")
-                description: pluginApi?.tr("settings.closeOnFocusLostDesc")
-                checked: root.closeOnFocusLost_
-                onToggled: (v) => { root.closeOnFocusLost_ = v; saveSettings() }
-            }
-            NToggle {
-                Layout.fillWidth: true
-                label: pluginApi?.tr("settings.showToasts")
-                description: pluginApi?.tr("settings.showToastsDesc")
-                checked: root.showToasts_
-                onToggled: (v) => { root.showToasts_ = v; saveSettings() }
-            }
 
             NDivider { Layout.fillWidth: true; Layout.topMargin: Style.marginXS; Layout.bottomMargin: Style.marginXS }
 
@@ -186,6 +151,13 @@ ColumnLayout {
                     placeholderText: "$SHELL"
                     onEditingFinished: { root.shellProgram_ = text; saveSettings() }
                 }
+            }
+            NToggle {
+                Layout.fillWidth: true
+                label: pluginApi?.tr("settings.showToasts")
+                description: pluginApi?.tr("settings.showToastsDesc")
+                checked: root.showToasts_
+                onToggled: (v) => { root.showToasts_ = v; saveSettings() }
             }
         }
 
