@@ -65,10 +65,11 @@ Item {
                 radius: Style.radiusM
                 color: Color.mSurface
 
-                // Rapporte la taille réelle de la zone terminal à Main → le holder s'y cale, donc les
-                // tuiles ont la même taille au repos et affichées : aucun resize (pas d'artefact de scroll).
-                onWidthChanged: if (root.mainInstance && width > 0) root.mainInstance.deckContentW = width
-                onHeightChanged: if (root.mainInstance && height > 0) root.mainInstance.deckContentH = height
+                // Rapporte la taille de la zone terminal à Main, qui la STABILISE (debounce) → les tuiles
+                // ne se redimensionnent pas pendant l'animation d'ouverture (termClip les clippe). Aucun
+                // reflow → prompt en bas préservé à la ré-ouverture.
+                onWidthChanged: if (root.mainInstance) root.mainInstance.reportContentSize(width, height)
+                onHeightChanged: if (root.mainInstance) root.mainInstance.reportContentSize(width, height)
 
                 NText {
                     anchors.centerIn: parent

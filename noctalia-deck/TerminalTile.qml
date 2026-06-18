@@ -12,7 +12,9 @@ import QMLTermWidget 2.0
 // C'est aussi LE point d'extensibilité : une future tuile « claude » = même composant avec command:"claude".
 Item {
     id: tile
-    anchors.fill: parent   // remplit le parent courant (Main au repos, la zone du panel quand affiché)
+    // Taille EXPLICITE et stable, fixée par Main (deckContentW/H), à (0,0) du parent courant. On NE
+    // remplit PAS le parent : ainsi la tuile ne suit pas l'animation d'ouverture du panel (termClip la
+    // clippe pendant la révélation) → le terminal ne se redimensionne jamais → prompt en bas préservé.
 
     // --- entrées (poussées par Main) ---
     property string shellProgram: ""        // vide => $SHELL

@@ -123,12 +123,27 @@ Item {
     property bool depAvailable: true
     property var _tileComp: null   // composant TerminalTile chargé (réutilisé pour « Nouvelle session »)
 
-    // Taille réelle de la zone terminal du panel, rapportée par Panel.qml. Le holder s'y cale pour que
-    // chaque tuile ait EXACTEMENT la même taille au repos et affichée → AUCUN resize. C'est ce qui évite
-    // l'artefact de scroll au démarrage : la session shell se rend une seule fois, à la bonne taille,
-    // sans lignes vides résiduelles (prompt en bas, pas de scroll sous le prompt).
-    property real deckContentW: 0
-    property real deckContentH: 0
+    // Taille STABILISÉE de la zone terminal. Panel.reportContentSize() la met à jour via un debounce :
+    // pendant l'animation d'ouverture du panel (termClip 0→plein), la valeur reste FIGÉE → les tuiles,
+    // dimensionnées dessus, NE SE REDIMENSIONNENT PAS (termClip les clippe pendant la révélation). Donc
+    // aucun reflow du terminal à la ré-ouverture → le prompt reste en bas (scroll uniquement vers le haut).
+    property real deckContentW: root.cfgWidth * Style.uiScaleRatio
+    property real deckContentH: root.cfgHeight * Style.uiScaleRatio
+    property real _pendingCW: 0
+    property real _pendingCH: 0
+    function reportContentSize(w, h) {
+        if (w > 0) root._pendingCW = w
+        if (h > 0) root._pendingCH = h
+        sizeSettle.restart()
+    }
+    Timer {
+        id: sizeSettle
+        interval: 120   // > durée d'animation d'ouverture du panel : ne fige la taille qu'une fois stable
+        onTriggered: {
+            if (root._pendingCW > 0) root.deckContentW = root._pendingCW
+            if (root._pendingCH > 0) root.deckContentH = root._pendingCH
+        }
+    }
 
     // Conteneur « au repos » des tuiles : invisible mais DIMENSIONNÉ (jamais 0×0), calé sur la taille du
     // panel. Indispensable aussi pour les TUIs (btop) : re-parenter vers un parent 0×0 pousserait un
@@ -159,6 +174,10 @@ Item {
         t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
         t.fontSize = Qt.binding(function () { return root.cfgFontSize })
         t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
+        // Taille explicite et STABLE (cf. deckContentW/H) → la tuile ne suit PAS l'animation du panel,
+        // donc le terminal ne se redimensionne pas (pas de reflow / prompt qui remonte à la ré-ouverture).
+        t.width = Qt.binding(function () { return root.deckContentW })
+        t.height = Qt.binding(function () { return root.deckContentH })
         // Onglet service (autoRelaunch) terminé après avoir vécu assez longtemps (garde anti-spin) →
         // RECRÉE cette tuile (session fraîche). On se branche sur `finished` (signal stable) plutôt que
         // sur un signal dédié, pour rester robuste à un rechargement QML partiel (cf. cache plugin).

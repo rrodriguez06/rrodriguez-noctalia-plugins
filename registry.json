@@ -43,7 +43,7 @@
     {
       "id": "noctalia-deck",
       "name": "Noctalia Deck",
-      "version": "0.3.6",
+      "version": "0.3.7",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Deck multi-onglets intégré au thème Noctalia (live theming via qmltermwidget) : terminal persistant + moniteur de processus (btop). Socle extensible pour de nouveaux services.",
