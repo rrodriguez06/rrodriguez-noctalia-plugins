@@ -22,20 +22,18 @@ recharge pas le QML déjà en cours d'exécution.
 
 ### Thème dynamique (couleurs calées sur le wallpaper)
 
-Pour que le mode de couleurs **« Thème Noctalia (auto) »** suive les accents extraits du wallpaper,
-qmltermwidget doit lire les schémas générés par le plugin via `COLORSCHEMES_DIR`. **Important** : son
-`ColorSchemeManager` ignore définitivement ce dossier s'il n'existe pas encore au lancement de `qs` →
-le dossier doit être créé **avant** la session. Fichier d'env fourni :
+`qmltermwidget` force lui-même `COLORSCHEMES_DIR` vers **son** dossier système au chargement (impossible
+de pointer un dossier custom). Le plugin écrit donc le schéma généré directement dans ce dossier, qui
+doit être rendu inscriptible **une seule fois** :
 
 ```sh
-# ~/.config/uwsm/env-hyprland.d/noctalia-deck.sh   (sourcé avant qs)
-export COLORSCHEMES_DIR="$HOME/.local/share/noctalia-deck/colorschemes"
-mkdir -p "$COLORSCHEMES_DIR"
-cp -n /usr/lib/qt6/qml/QMLTermWidget/color-schemes/*.colorscheme "$COLORSCHEMES_DIR"/ 2>/dev/null || true
+sudo chown "$USER" /usr/lib/qt6/qml/QMLTermWidget/color-schemes
 ```
 
-→ **relogin unique** pour que la session crée le dossier et prenne la variable en compte. Sans ça, le
-mode auto retombe sur un schéma clair/sombre, et le mode « Schéma terminal » fonctionne toujours.
+Ensuite, en mode **« Thème Noctalia (auto) »**, le terminal suit la palette du wallpaper et se met à
+jour en live. Pas de relogin. (À refaire après une mise à jour du paquet `qmltermwidget`, qui
+réinitialise le propriétaire du dossier.) Si le dossier n'est pas inscriptible, le mode auto retombe
+sur un schéma clair/sombre, et le mode « Schéma terminal » fonctionne toujours.
 
 > Pour l'attache à la barre, l'option globale Noctalia **« attacher les panneaux à la barre »** doit
 > être active (Réglages → interface). Sinon le terminal s'affiche flottant (clic-dehors, focus et

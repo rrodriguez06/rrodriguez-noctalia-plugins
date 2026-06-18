@@ -12,7 +12,8 @@
     "error": {
         "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",
         "missingDepLong": "Noctalia Deck nécessite le paquet « qmltermwidget » :\n\n  pacman -S qmltermwidget\n\npuis redémarrez le shell.",
-        "missingDepTitle": "Dépendance manquante"
+        "missingDepTitle": "Dépendance manquante",
+        "schemeDirRO": "Thème Noctalia : rends le dossier de schémas inscriptible →  sudo chown \"$USER\" /usr/lib/qt6/qml/QMLTermWidget/color-schemes"
     },
     "toast": {
         "sessionEnded": "Session terminée — clic droit sur le widget pour une nouvelle session."

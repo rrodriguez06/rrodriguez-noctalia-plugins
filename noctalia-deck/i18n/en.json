@@ -12,7 +12,8 @@
     "error": {
         "missingDep": "qmltermwidget is missing (pacman -S qmltermwidget)",
         "missingDepLong": "Noctalia Deck needs the 'qmltermwidget' package:\n\n  pacman -S qmltermwidget\n\nthen restart the shell.",
-        "missingDepTitle": "Missing dependency"
+        "missingDepTitle": "Missing dependency",
+        "schemeDirRO": "Noctalia theme: make the scheme dir writable once →  sudo chown \"$USER\" /usr/lib/qt6/qml/QMLTermWidget/color-schemes"
     },
     "toast": {
         "sessionEnded": "Terminal session ended — right-click the widget for a new session."
