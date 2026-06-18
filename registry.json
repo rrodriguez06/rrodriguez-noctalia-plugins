@@ -43,14 +43,14 @@
     {
       "id": "noctalia-deck",
       "name": "Noctalia Deck",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Deck multi-onglets intégré au thème Noctalia (live theming via qmltermwidget) : terminal persistant + moniteur de processus (btop). Socle extensible pour de nouveaux services.",
       "tags": ["Bar", "Panel", "ControlCenter", "Launcher", "Utility"],
       "official": false,
       "minNoctaliaVersion": "4.5.0",
-      "lastUpdated": "2026-06-19T12:00:00Z",
+      "lastUpdated": "2026-06-18T20:00:00Z",
       "entryPoints": {
         "main": "Main.qml",
         "barWidget": "BarWidget.qml",

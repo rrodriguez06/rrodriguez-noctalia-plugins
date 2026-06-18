@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import qs.Commons
 import QMLTermWidget 2.0
 
@@ -77,8 +79,9 @@ Item {
     }
 
     function focusTerminal() { term.forceActiveFocus() }
-    function copy() { term.copyClipboard() }
-    function paste() { term.pasteClipboard() }
+    // Copy/paste sont pilotés par les signaux du fork (copyRequested/pasteRequested → Connections plus
+    // bas), routés vers wl-copy/wl-paste car QClipboard est inerte dans une surface layer-shell Quickshell.
+    function paste() { if (!pasteProc.running) pasteProc.running = true }
 
     // Force le re-dessin : après le re-parentage (changement de fenêtre), QMLTermWidget ne se repeint
     // pas tant que rien ne l'invalide (d'où l'écran « vide » jusqu'à un scroll). updateImage() re-récupère
@@ -170,6 +173,32 @@ Item {
     // cas de relance, après la fin propre de la session précédente. Voir start()/restart()/_launchWhenSized.
     Timer { id: launchTimer; interval: 60; onTriggered: tile._launchWhenSized() }
 
-    Shortcut { sequence: "Ctrl+Shift+C"; onActivated: term.copyClipboard() }
-    Shortcut { sequence: "Ctrl+Shift+V"; onActivated: term.pasteClipboard() }
+    // Copy/paste via wl-clipboard. Le fork émet copyRequested/pasteRequested sur Ctrl+Shift+C/V
+    // (QClipboard est inerte dans une surface layer-shell Quickshell, tout comme dans Noctalia qui
+    // passe lui aussi par wl-copy/wl-paste). copyRequested porte la sélection courante du terminal.
+    Connections {
+        target: term
+        function onCopyRequested(text) {
+            if (!text || text.length === 0)
+                return
+            // échappement single-quote pour sh : ' → '\'' (cf. ClipboardService.pasteText de Noctalia)
+            var esc = text.replace(/'/g, "'\\''")
+            Quickshell.execDetached(["sh", "-c", "printf '%s' '" + esc + "' | wl-copy"])
+        }
+        function onPasteRequested() { tile.paste() }
+    }
+
+    // Lit le presse-papier Wayland et l'injecte dans le PTY comme une saisie (session.sendText).
+    Process {
+        id: pasteProc
+        command: ["wl-paste", "--no-newline"]
+        stdout: StdioCollector {}
+        onExited: (code, status) => {
+            if (code === 0) {
+                var t = String(pasteProc.stdout.text)
+                if (t.length > 0)
+                    session.sendText(t)
+            }
+        }
+    }
 }
