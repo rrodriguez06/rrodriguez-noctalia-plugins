@@ -83,11 +83,13 @@ Item {
     // Force le re-dessin : après le re-parentage (changement de fenêtre), QMLTermWidget ne se repeint
     // pas tant que rien ne l'invalide (d'où l'écran « vide » jusqu'à un scroll). updateImage() re-récupère
     // l'image de l'écran du terminal et redessine — slot de base, dispo sans le fork.
-    signal dbgInfo(string info)   // [DIAG] remonté à Main pour écriture fichier
+    // Force un re-dessin COMPLET. updateImage() ne repeint que les cellules « sales » → après le
+    // re-parentage (changement de fenêtre), seule une portion est redessinée (d'où l'affichage partiel
+    // jusqu'à un scroll). On mime donc un scroll (haut puis bas, position nette inchangée) : ça rend
+    // toutes les cellules sales → repaint complet. C'est exactement ce que fait le scroll manuel.
     function refresh() {
-        tile.dbgInfo("REFRESH tile=" + Math.round(tile.width) + "x" + Math.round(tile.height)
-            + " term=" + Math.round(term.width) + "x" + Math.round(term.height)
-            + " cols=" + term.columns + " lines=" + term.lines)
+        term.simulateWheel(10, 10, 0, 0, Qt.point(0, 120))    // haut
+        term.simulateWheel(10, 10, 0, 0, Qt.point(0, -120))   // bas (retour)
         if (typeof term.updateImage === "function") term.updateImage()
     }
 

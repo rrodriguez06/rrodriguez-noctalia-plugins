@@ -131,9 +131,6 @@ Item {
     property real deckContentH: root.cfgHeight * Style.uiScaleRatio
     property real _pendingCW: 0
     property real _pendingCH: 0
-    function dlog(m) {   // [DIAG] qs → /dev/null ; on écrit dans un fichier
-        Quickshell.execDetached(["sh", "-c", 'printf "%s %s\\n" "$(date +%H:%M:%S.%N)" "$1" >> /tmp/noctalia-deck-debug.log', "sh", m])
-    }
     function reportContentSize(w, h) {
         if (w > 0) root._pendingCW = w
         if (h > 0) root._pendingCH = h
@@ -145,7 +142,6 @@ Item {
         onTriggered: {
             if (root._pendingCW > 0) root.deckContentW = root._pendingCW
             if (root._pendingCH > 0) root.deckContentH = root._pendingCH
-            root.dlog("SETTLE deckContentW=" + Math.round(root.deckContentW) + " deckContentH=" + Math.round(root.deckContentH))   // [DIAG]
         }
     }
 
@@ -192,7 +188,6 @@ Item {
             if (t.autoRelaunch && (Date.now() - t._startedAt) > t._minLifeMs)
                 root._recreateTileAt(root.tiles.indexOf(t))
         })
-        t.dbgInfo.connect(function (info) { root.dlog(info) })   // [DIAG]
         return t
     }
 
@@ -247,10 +242,7 @@ Item {
             root._tileComp.statusChanged.connect(finish)
     }
 
-    Component.onCompleted: {
-        Quickshell.execDetached(["sh", "-c", "echo '=== session start ===' > /tmp/noctalia-deck-debug.log"])   // [DIAG]
-        root._createTiles()
-    }
+    Component.onCompleted: root._createTiles()
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
     IpcHandler {
