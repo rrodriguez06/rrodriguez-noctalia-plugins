@@ -112,9 +112,12 @@ Item {
     //               résoudre le PATH et permettre une ligne de commande arbitraire ; auto-relance si
     //               on le quitte (ex. « q » dans btop). Couleurs gérées par Noctalia (template btop).
     readonly property string _shell: (Quickshell.env("SHELL") && Quickshell.env("SHELL").length > 0) ? Quickshell.env("SHELL") : "/bin/sh"
+    // Shell du deck lancé via `env NOCTALIA_DECK=1 <shell>` : ajoute un marqueur (sans toucher au reste
+    // de l'environnement) que le .zshrc lit pour aligner le bandeau/prompt en bas (cf. README).
+    readonly property string _shellProg: (root.cfgShell && root.cfgShell.length > 0) ? root.cfgShell : root._shell
     readonly property var tabsModel: [
-        { "id": "shell",   "icon": "terminal", "shellProgram": root.cfgShell, "shellArgs": [],                                       "autoRelaunch": false },
-        { "id": "procmon", "icon": "activity", "shellProgram": root._shell,   "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  }
+        { "id": "shell",   "icon": "terminal", "shellProgram": "/usr/bin/env", "shellArgs": ["NOCTALIA_DECK=1", root._shellProg], "autoRelaunch": false },
+        { "id": "procmon", "icon": "activity", "shellProgram": root._shell,    "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  }
     ]
 
     // ── Les tuiles persistantes ──────────────────────────────────────────────
