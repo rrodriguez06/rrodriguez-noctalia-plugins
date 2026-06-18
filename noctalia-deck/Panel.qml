@@ -94,10 +94,12 @@ Item {
         for (var i = 0; i < ts.length; i++) {
             ts[i].parent = termClip.contentItem
             ts[i].start()   // idempotent ; démarre (différé) à la taille réelle du panel, pas du holder
+            ts[i].logState("ATTACH")   // [DIAG 0.3.8]
         }
         // Restaure l'onglet précédemment sélectionné (survit aux ouvertures/fermetures).
         tabBar.currentIndex = root.mainInstance.currentTab
         root._syncTabs()
+        attachLateTimer.restart()   // [DIAG 0.3.8] état après animation d'ouverture
     }
 
     // Affiche uniquement la tuile de l'onglet courant ; les autres tournent en arrière-plan.
@@ -110,6 +112,17 @@ Item {
             ts[i].visible = (i === cur)
         if (cur >= 0 && cur < ts.length)
             Qt.callLater(ts[cur].focusTerminal)
+    }
+
+    // [DIAG 0.3.8] re-log l'état des tuiles une fois l'animation d'ouverture terminée.
+    Timer {
+        id: attachLateTimer
+        interval: 600
+        onTriggered: {
+            if (!root.mainInstance) return
+            var ts = root.mainInstance.tiles
+            for (var i = 0; i < ts.length; i++) ts[i].logState("ATTACH-LATE")
+        }
     }
 
     Component.onCompleted: _attachTiles()

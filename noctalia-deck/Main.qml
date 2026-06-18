@@ -156,7 +156,12 @@ Item {
         height: root.deckContentH > 0 ? root.deckContentH : root.cfgHeight * Style.uiScaleRatio
     }
 
-    function reclaimTiles() { for (var i = 0; i < root.tiles.length; i++) root.tiles[i].parent = tileHolder }
+    function reclaimTiles() {
+        for (var i = 0; i < root.tiles.length; i++) {
+            root.tiles[i].logState("RECLAIM")   // [DIAG 0.3.8] état au moment de la fermeture
+            root.tiles[i].parent = tileHolder
+        }
+    }
 
     // Crée (SANS démarrer) une tuile depuis une entrée de tabsModel, parentée au holder. Le démarrage
     // se fait au 1er attachement au panel (Panel._attachTiles) → directement à la taille du panel, sans
