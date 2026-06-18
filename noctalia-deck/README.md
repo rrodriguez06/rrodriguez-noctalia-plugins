@@ -20,6 +20,20 @@ sudo pacman -S qmltermwidget
 Puis **redémarre le shell** (relog ou redémarrage de Noctalia) — un simple rechargement par l'UI ne
 recharge pas le QML déjà en cours d'exécution.
 
+### Thème dynamique (couleurs calées sur le wallpaper)
+
+Pour que le mode de couleurs **« Thème Noctalia (auto) »** suive les accents extraits du wallpaper,
+qmltermwidget doit lire les schémas générés par le plugin via `COLORSCHEMES_DIR`. Un fichier d'env
+est fourni :
+
+```sh
+# ~/.config/uwsm/env-hyprland.d/noctalia-deck.sh
+export COLORSCHEMES_DIR="$HOME/.local/share/noctalia-deck/colorschemes"
+```
+
+→ **relogin unique** pour que la session prenne la variable en compte. Sans elle, le mode auto retombe
+sur un schéma clair/sombre, et le mode « Schéma terminal » fonctionne toujours.
+
 > Pour l'attache à la barre, l'option globale Noctalia **« attacher les panneaux à la barre »** doit
 > être active (Réglages → interface). Sinon le terminal s'affiche flottant (clic-dehors, focus et
 > coins arrondis restent fonctionnels).
@@ -46,12 +60,10 @@ recharge pas le QML déjà en cours d'exécution.
 
 ### Couleurs
 
-- **Thème Noctalia (auto)** — suit le clair/sombre du thème global (défini par ton wallpaper).
+- **Thème Noctalia (auto)** — génère un `.colorscheme` depuis la palette Noctalia (fond, texte,
+  accents extraits du wallpaper) et le **régénère à chaque changement de wallpaper**. Nécessite
+  `COLORSCHEMES_DIR` (cf. *Thème dynamique* ci-dessus) ; sinon repli clair/sombre.
 - **Schéma terminal** — un des schémas fournis par qmltermwidget (Solarized, Falcon, Tango…).
-
-> Le mode « auto » sélectionne pour l'instant un schéma clair/sombre. Le *match exact* des couleurs
-> Noctalia (génération d'un `.colorscheme`) nécessite `COLORSCHEMES_DIR` au lancement du shell —
-> évolution prévue (voir *Roadmap*).
 
 ## Architecture (pour l'extension)
 
@@ -70,7 +82,7 @@ qu'une tuile shell ; l'archi est prête pour les onglets et d'autres types de tu
 - Onglets / multi-tuiles.
 - Tuile preset `claude` (session Claude Code persistante).
 - Tuiles TUI (btop, lazygit, lazydocker…) et tuiles QML natives.
-- Match exact des couleurs Noctalia (`.colorscheme` + `COLORSCHEMES_DIR`).
+- Réglage fin du mapping ANSI du thème auto.
 
 ## Licence
 
