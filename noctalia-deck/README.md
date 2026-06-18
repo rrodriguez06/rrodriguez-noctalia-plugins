@@ -15,14 +15,15 @@ une session `claude`, un TUI (btop, lazygit…), ou une vue QML native.
 
 Le terminal est rendu par `qmltermwidget`. Deux variantes possibles :
 
-- **Theming live (recommandé)** — le fork **qmltermwidget-noctalia** (fourni dans
-  [`qmltermwidget-noctalia/`](qmltermwidget-noctalia/)), qui ajoute un slot QML `applyColorSchemeFile()`.
-  C'est ce qui permet au terminal de **suivre en live** la palette Noctalia/wallpaper.
+- **Theming live (recommandé)** — le fork **[qmltermwidget-noctalia](https://github.com/rrodriguez06/qmltermwidget/tree/noctalia-live)**,
+  qui ajoute un slot QML `applyColorSchemeFile()` permettant au terminal de **suivre en live** la
+  palette Noctalia/wallpaper. Il s'installe à part (paquet système, indépendant du plugin) et remplace
+  le paquet officiel (`provides`/`conflicts`) :
   ```sh
-  cd qmltermwidget-noctalia && makepkg -si
+  git clone -b noctalia-live https://github.com/rrodriguez06/qmltermwidget.git
+  cd qmltermwidget && makepkg -si
+  # mise à jour ultérieure : git pull --rebase && makepkg -si
   ```
-  Remplace le paquet officiel (`provides`/`conflicts`). Source :
-  `github.com/rrodriguez06/qmltermwidget`, branche `noctalia-live`.
 
 - **Stock** — `sudo pacman -S qmltermwidget`. Le terminal fonctionne, mais le mode de couleurs auto
   retombe sur un schéma built-in clair/sombre (pas de suivi live du wallpaper).
