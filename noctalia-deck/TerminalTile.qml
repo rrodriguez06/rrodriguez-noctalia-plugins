@@ -58,6 +58,13 @@ Item {
     function copy() { term.copyClipboard() }
     function paste() { term.pasteClipboard() }
 
+    // Live theming : présent uniquement avec le fork qmltermwidget-noctalia (slot applyColorSchemeFile).
+    readonly property bool liveCapable: (typeof term.applyColorSchemeFile === "function")
+    function applySchemeFile(path) {
+        if (typeof term.applyColorSchemeFile === "function")
+            term.applyColorSchemeFile(path)
+    }
+
     QMLTermWidget {
         id: term
         anchors.fill: parent   // remplit tout (padding symétrique) ; la scrollbar se superpose

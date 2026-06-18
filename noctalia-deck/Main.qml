@@ -9,22 +9,18 @@ import qs.Services.UI
 // La tuile (QMLTermWidget) est créée ici avec Main comme parent QObject → elle vit aussi longtemps
 // que le plugin. Le Panel natif Noctalia ne fait que la re-parenter visuellement (voir Panel.qml).
 //
-// Thème "noctalia" : on GÉNÈRE un .colorscheme depuis les tokens Color.* (bg/fg/accents du wallpaper)
-// et on l'écrit dans le dossier système de qmltermwidget (rendu inscriptible une fois :
-//   sudo chown "$USER" /usr/lib/qt6/qml/QMLTermWidget/color-schemes  ).
-//
-// ⚠️ LIMITE qmltermwidget : TerminalDisplay::setColorScheme n'accepte qu'un schéma présent dans
-// availableColorSchemes(), lui-même rempli par loadAllColorSchemes() UNE SEULE FOIS (flag
-// _haveLoadedAll) au premier setColorScheme. Donc :
-//   • le schéma doit exister AVANT la création de la tuile (sinon fond blanc par défaut) ;
-//   • le thème ne peut PAS suivre le wallpaper en live (liste figée) → il reflète la palette au
-//     démarrage du shell ; un relog le réactualise.
+// Thème "noctalia" :
+//   • Avec le fork qmltermwidget-noctalia (slot applyColorSchemeFile) → theming LIVE : on génère un
+//     .colorscheme dans ~/.cache depuis les tokens Color.* et on l'applique à chaque changement de
+//     palette (wallpaper). Aucun cache, aucun COLORSCHEMES_DIR, aucun sudo.
+//   • Sans le fork (qmltermwidget stock) → repli sur un schéma built-in clair/sombre (pas de live ;
+//     installer le fork pour le live, cf. README + dossier qmltermwidget-noctalia/).
 Item {
     id: root
     property var pluginApi: null
 
-    readonly property string schemesDir: "/usr/lib/qt6/qml/QMLTermWidget/color-schemes"
-    readonly property string genName: "NoctaliaDeck"   // nom fixe (présent au scan initial)
+    readonly property string schemesDir: (Quickshell.env("HOME") || "/tmp") + "/.cache/noctalia-deck"
+    readonly property string livePath: root.schemesDir + "/live.colorscheme"
 
     // ── Réglages (repli sur les défauts du manifeste) ────────────────────────
     readonly property var s: pluginApi?.pluginSettings ?? null
@@ -38,8 +34,9 @@ Item {
     readonly property string cfgShell: (s && s.shellProgram) ? s.shellProgram : ""
     readonly property bool cfgShowToasts: (s && s.showToasts !== undefined) ? s.showToasts : true
 
-    // ── Schéma effectif ──────────────────────────────────────────────────────
-    property bool genReady: false   // passe à true quand le .colorscheme généré est écrit
+    // ── Schéma de base (propriété colorScheme du widget) ─────────────────────
+    // En mode live, ce built-in n'est qu'une base aussitôt surchargée par applyColorSchemeFile.
+    // En repli (stock), c'est le schéma réellement affiché.
     function _isDarkTheme() {
         var c = Color.mSurface
         return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) < 0.5
@@ -47,9 +44,7 @@ Item {
     readonly property string effectiveScheme: {
         if (root.cfgThemeMode === "scheme")
             return root.cfgScheme
-        if (root.genReady)
-            return root.genName
-        return root._isDarkTheme() ? "Falcon" : "SolarizedLight"   // repli si génération impossible
+        return root._isDarkTheme() ? "Falcon" : "SolarizedLight"
     }
 
     // ── Génération du .colorscheme depuis la palette Noctalia ────────────────
@@ -81,20 +76,27 @@ Item {
         return s
     }
 
-    // Écrit le schéma PUIS crée la tuile (l'ordre est critique : le schéma doit exister avant le
-    // premier setColorScheme, sinon qmltermwidget fige une liste qui ne le contient pas → fond blanc).
+    // ── Theming live (fork uniquement) ───────────────────────────────────────
+    readonly property bool liveCapable: root.tileItem ? root.tileItem.liveCapable : false
+
     Process {
-        id: schemeWriter
-        onExited: code => {
-            if (code === 0) {
-                root.genReady = true
-            } else if (root.cfgShowToasts) {
-                ToastService.showError(root.pluginApi ? root.pluginApi.tr("error.schemeDirRO")
-                    : "Noctalia Deck : dossier de schémas non inscriptible — sudo chown \"$USER\" /usr/lib/qt6/qml/QMLTermWidget/color-schemes")
-            }
-            root._createTile()
-        }
+        id: liveWriter
+        onExited: code => { if (code === 0 && root.tileItem) root.tileItem.applySchemeFile(root.livePath) }
     }
+    function _writeLive() {
+        if (root.cfgThemeMode !== "noctalia" || !root.liveCapable)
+            return
+        liveWriter.command = ["sh", "-c",
+            'd="$(dirname "$1")"; mkdir -p "$d"; printf "%s" "$2" > "$1"',
+            "sh", root.livePath, root._schemeContent()]
+        liveWriter.running = true
+    }
+
+    // Régénère + applique (debounced) au changement de palette (wallpaper) ou de mode.
+    property color paletteKey: Color.mPrimary
+    onPaletteKeyChanged: if (root.liveCapable && root.cfgThemeMode === "noctalia") regenDebounce.restart()
+    onCfgThemeModeChanged: if (root.liveCapable && cfgThemeMode === "noctalia") regenDebounce.restart()
+    Timer { id: regenDebounce; interval: 150; onTriggered: root._writeLive() }
 
     // ── La tuile persistante ─────────────────────────────────────────────────
     property var tileItem: null
@@ -104,8 +106,6 @@ Item {
     function newSession() { if (root.tileItem) root.tileItem.restart() }
 
     function _createTile() {
-        if (root.tileItem)
-            return
         var comp = Qt.createComponent("TerminalTile.qml")
         function finish() {
             if (comp.status === Component.Error) {
@@ -127,6 +127,8 @@ Item {
             t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
             root.tileItem = t
             t.start()
+            // Si le fork est présent → applique tout de suite les couleurs live du wallpaper.
+            root._writeLive()
         }
         if (comp.status === Component.Ready)
             finish()
@@ -134,13 +136,7 @@ Item {
             comp.statusChanged.connect(finish)
     }
 
-    Component.onCompleted: {
-        // Écrit le schéma généré (palette courante), puis crée la tuile dans onExited.
-        schemeWriter.command = ["sh", "-c",
-            'printf "%s" "$2" > "$1/NoctaliaDeck.colorscheme"',
-            "sh", root.schemesDir, root._schemeContent()]
-        schemeWriter.running = true
-    }
+    Component.onCompleted: root._createTile()
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
     IpcHandler {

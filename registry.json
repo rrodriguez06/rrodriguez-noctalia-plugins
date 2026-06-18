@@ -43,14 +43,14 @@
     {
       "id": "noctalia-deck",
       "name": "Noctalia Deck",
-      "version": "0.1.8",
+      "version": "0.2.0",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Terminal flottant persistant (style Quake) intégré au thème Noctalia, via qmltermwidget. Socle extensible pour des tuiles flottantes.",
       "tags": ["Bar", "Panel", "ControlCenter", "Launcher", "Utility"],
       "official": false,
       "minNoctaliaVersion": "4.5.0",
-      "lastUpdated": "2026-06-18T19:00:00Z",
+      "lastUpdated": "2026-06-18T20:00:00Z",
       "entryPoints": {
         "main": "Main.qml",
         "barWidget": "BarWidget.qml",

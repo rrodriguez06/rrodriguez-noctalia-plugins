@@ -1,0 +1,35 @@
+# Maintainer: rrodriguez06
+# Fork de qmltermwidget avec applyColorSchemeFile() (theming live pour Noctalia Deck).
+# Remplace le paquet officiel `qmltermwidget`.
+#
+# Installer :   makepkg -si
+# Mettre à jour (après rebase de la branche noctalia-live sur l'upstream) :  makepkg -si
+pkgname=qmltermwidget-noctalia
+pkgver=r830.ce8224f
+pkgrel=1
+pkgdesc="qmltermwidget + applyColorSchemeFile() pour le theming live (fork Noctalia Deck)"
+arch=('x86_64')
+url="https://github.com/rrodriguez06/qmltermwidget"
+license=('GPL2')
+depends=('qt6-base' 'qt6-declarative')
+makedepends=('git')
+provides=('qmltermwidget')
+conflicts=('qmltermwidget')
+source=("git+https://github.com/rrodriguez06/qmltermwidget.git#branch=noctalia-live")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/qmltermwidget"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "$srcdir/qmltermwidget"
+  qmake6
+  make
+}
+
+package() {
+  cd "$srcdir/qmltermwidget"
+  make INSTALL_ROOT="$pkgdir" install
+}

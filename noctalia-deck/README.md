@@ -11,35 +11,33 @@ Particularité : **la session survit aux ouvertures/fermetures** (shell, process
 C'est aussi le **socle d'un host de tuiles flottantes** : aujourd'hui une tuile « terminal », demain
 une session `claude`, un TUI (btop, lazygit…), ou une vue QML native.
 
-## Dépendance
+## Dépendance : qmltermwidget
 
-```sh
-sudo pacman -S qmltermwidget
-```
+Le terminal est rendu par `qmltermwidget`. Deux variantes possibles :
 
-Puis **redémarre le shell** (relog ou redémarrage de Noctalia) — un simple rechargement par l'UI ne
-recharge pas le QML déjà en cours d'exécution.
+- **Theming live (recommandé)** — le fork **qmltermwidget-noctalia** (fourni dans
+  [`qmltermwidget-noctalia/`](qmltermwidget-noctalia/)), qui ajoute un slot QML `applyColorSchemeFile()`.
+  C'est ce qui permet au terminal de **suivre en live** la palette Noctalia/wallpaper.
+  ```sh
+  cd qmltermwidget-noctalia && makepkg -si
+  ```
+  Remplace le paquet officiel (`provides`/`conflicts`). Source :
+  `github.com/rrodriguez06/qmltermwidget`, branche `noctalia-live`.
 
-### Thème dynamique (couleurs calées sur le wallpaper)
+- **Stock** — `sudo pacman -S qmltermwidget`. Le terminal fonctionne, mais le mode de couleurs auto
+  retombe sur un schéma built-in clair/sombre (pas de suivi live du wallpaper).
 
-`qmltermwidget` force lui-même `COLORSCHEMES_DIR` vers **son** dossier système au chargement (impossible
-de pointer un dossier custom). Le plugin écrit donc le schéma généré directement dans ce dossier, qui
-doit être rendu inscriptible **une seule fois** :
+Après (ré)installation, **redémarre le shell** (relog) — un rechargement par l'UI ne recharge pas le
+QML déjà en cours d'exécution.
 
-```sh
-sudo chown "$USER" /usr/lib/qt6/qml/QMLTermWidget/color-schemes
-```
+### Pourquoi un fork ?
 
-Ensuite, en mode **« Thème Noctalia (auto) »**, le terminal se cale sur la palette du wallpaper.
-(À refaire après une mise à jour du paquet `qmltermwidget`, qui réinitialise le propriétaire du
-dossier.) Si le dossier n'est pas inscriptible, le mode auto retombe sur un schéma clair/sombre, et le
-mode « Schéma terminal » fonctionne toujours.
-
-> **Limite de qmltermwidget (pas un bug du plugin)** : son `ColorSchemeManager` ne scanne les schémas
-> qu'une seule fois (au premier `setColorScheme`) et `setColorScheme` ignore tout nom absent de cette
-> liste figée. Conséquence : le thème reflète la palette **au démarrage du shell** et **ne suit pas le
-> wallpaper en live** — un **relog** le réactualise. (La transparence de fond, qui aurait permis un
-> suivi live, est ignorée par ce build.)
+Le `qmltermwidget` stock ne sait appliquer que des schémas présents dans son dossier système au tout
+premier scan (liste figée, cache par nom) et force `COLORSCHEMES_DIR` vers ce dossier — donc impossible
+d'injecter ou de mettre à jour un schéma à chaud. Le fork ajoute une seule méthode,
+`applyColorSchemeFile(path)`, qui lit un `.colorscheme` arbitraire et l'applique directement à la table
+de rendu (sans cache, sans dossier système, sans `sudo`) → theming live. Le patch est isolé (un commit
+sur la branche `noctalia-live`), rebasable sur l'upstream.
 
 > Pour l'attache à la barre, l'option globale Noctalia **« attacher les panneaux à la barre »** doit
 > être active (Réglages → interface). Sinon le terminal s'affiche flottant (clic-dehors, focus et
@@ -68,8 +66,8 @@ mode « Schéma terminal » fonctionne toujours.
 ### Couleurs
 
 - **Thème Noctalia (auto)** — génère un `.colorscheme` depuis la palette Noctalia (fond, texte,
-  accents extraits du wallpaper) et le **régénère à chaque changement de wallpaper**. Nécessite
-  `COLORSCHEMES_DIR` (cf. *Thème dynamique* ci-dessus) ; sinon repli clair/sombre.
+  accents du wallpaper). Avec le fork **qmltermwidget-noctalia** : appliqué **en live** à chaque
+  changement de wallpaper. Avec le paquet stock : repli sur un built-in clair/sombre.
 - **Schéma terminal** — un des schémas fournis par qmltermwidget (Solarized, Falcon, Tango…).
 
 ## Architecture (pour l'extension)
