@@ -23,9 +23,10 @@ Item {
     property string fontFamily: "monospace"
     property int fontSize: 11
 
-    // Onglet « service » : relance le programme s'il se termine (ex. on quitte btop avec « q »).
-    // Garde anti-spin : on ne relance pas si le process a vécu moins de _minLifeMs (commande absente
-    // / échec immédiat) → l'onglet reste utilisable sans boucler.
+    // Onglet « service » : à relancer s'il se termine (ex. on quitte btop avec « q »). La décision de
+    // relance est prise par Main (sur le signal `finished`), qui RECRÉE la tuile (session fraîche) —
+    // relancer en place ne marche pas sur une session déjà terminée. `_startedAt`/`_minLifeMs` servent
+    // à la garde anti-spin côté Main (ne pas reboucler si la commande échoue immédiatement).
     property bool autoRelaunch: false
     readonly property int _minLifeMs: 1500
     property double _startedAt: 0
@@ -37,9 +38,8 @@ Item {
     readonly property string foregroundName: session.foregroundProcessName
 
     // --- signaux ---
-    signal finished()
+    signal finished()            // Main y branche l'éventuelle relance (recréation) des onglets service
     signal lostFocus()
-    signal relaunchRequested()   // onglet service terminé → Main recrée la tuile (session fraîche)
 
     // --- API ---
     function start() {
@@ -72,17 +72,6 @@ Item {
             session.startShellProgram()
             tile.started = true
         }
-    }
-
-    // Fin du process : signale toujours `finished()` (comportement shell inchangé), puis relance
-    // si onglet service ET process suffisamment vivace (sinon garde anti-spin).
-    function _onFinished() {
-        tile.finished()
-        // Onglet service (btop…) : demander à Main de RECRÉER la tuile (session fraîche). Relancer en
-        // place via startShellProgram() ne marche pas de façon fiable sur une session déjà terminée.
-        // Garde anti-spin : seulement si le process a vécu assez longtemps (sinon commande absente/échec).
-        if (tile.autoRelaunch && tile.started && (Date.now() - tile._startedAt) > tile._minLifeMs)
-            tile.relaunchRequested()
     }
 
     function focusTerminal() { term.forceActiveFocus() }
@@ -119,7 +108,7 @@ Item {
 
         session: QMLTermSession {
             id: session
-            onFinished: tile._onFinished()
+            onFinished: tile.finished()
             onTermLostFocus: tile.lostFocus()
         }
 

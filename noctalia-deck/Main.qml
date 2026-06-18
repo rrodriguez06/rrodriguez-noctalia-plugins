@@ -159,8 +159,13 @@ Item {
         t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
         t.fontSize = Qt.binding(function () { return root.cfgFontSize })
         t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
-        // Onglet service terminé (ex. on quitte btop) → recrée CETTE tuile (session fraîche).
-        t.relaunchRequested.connect(function () { root._recreateTileAt(root.tiles.indexOf(t)) })
+        // Onglet service (autoRelaunch) terminé après avoir vécu assez longtemps (garde anti-spin) →
+        // RECRÉE cette tuile (session fraîche). On se branche sur `finished` (signal stable) plutôt que
+        // sur un signal dédié, pour rester robuste à un rechargement QML partiel (cf. cache plugin).
+        t.finished.connect(function () {
+            if (t.autoRelaunch && (Date.now() - t._startedAt) > t._minLifeMs)
+                root._recreateTileAt(root.tiles.indexOf(t))
+        })
         return t
     }
 
