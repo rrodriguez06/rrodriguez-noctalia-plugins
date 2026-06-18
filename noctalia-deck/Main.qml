@@ -122,7 +122,18 @@ Item {
     property int currentTab: 0
     property bool depAvailable: true
 
-    function reclaimTiles() { for (var i = 0; i < root.tiles.length; i++) root.tiles[i].parent = root }
+    // Conteneur « au repos » des tuiles : invisible mais DIMENSIONNÉ (≈ taille du panel), jamais 0×0.
+    // Indispensable pour les TUIs (btop) : re-parenter vers un parent 0×0 pousserait un winsize 0 au PTY
+    // → btop planterait (« Failed to get size of terminal! »). Le Panel re-parente les tuiles dans sa
+    // zone visible à l'ouverture et les rend ici à la fermeture.
+    Item {
+        id: tileHolder
+        visible: false
+        width: root.cfgWidth * Style.uiScaleRatio
+        height: root.cfgHeight * Style.uiScaleRatio
+    }
+
+    function reclaimTiles() { for (var i = 0; i < root.tiles.length; i++) root.tiles[i].parent = tileHolder }
     function newSession() {
         var t = (root.currentTab >= 0 && root.currentTab < root.tiles.length) ? root.tiles[root.currentTab] : null
         if (t) t.restart()
@@ -143,7 +154,7 @@ Item {
             var created = []
             for (var i = 0; i < root.tabsModel.length; i++) {
                 var spec = root.tabsModel[i]
-                var t = comp.createObject(root, {
+                var t = comp.createObject(tileHolder, {
                     "shellProgram": spec.shellProgram,
                     "shellArgs": spec.shellArgs,
                     "autoRelaunch": spec.autoRelaunch

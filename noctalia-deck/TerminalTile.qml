@@ -29,6 +29,7 @@ Item {
     property bool autoRelaunch: false
     readonly property int _minLifeMs: 1500
     property double _startedAt: 0
+    property bool _pendingStart: false
 
     // --- état ---
     property bool started: false
@@ -41,7 +42,7 @@ Item {
 
     // --- API ---
     function start() {
-        if (tile.started)
+        if (tile.started || tile._pendingStart)
             return
         if (tile.shellProgram && tile.shellProgram.length > 0)
             session.shellProgram = tile.shellProgram
@@ -51,16 +52,29 @@ Item {
             session.initialWorkingDirectory = tile.cwd
         if (tile.envv && tile.envv.length > 0)
             session.setEnvironment(tile.envv)
-        tile._startedAt = Date.now()
-        session.startShellProgram()
-        tile.started = true
+        tile._pendingStart = true
+        tile._launchWhenSized()
     }
 
     function restart() {
-        tile._startedAt = Date.now()
-        session.startShellProgram()
-        tile.started = true
+        tile.started = false
+        tile._pendingStart = true
+        tile._launchWhenSized()
         Qt.callLater(tile.focusTerminal)
+    }
+
+    // Beaucoup de TUIs (btop…) lisent la taille du terminal AU LANCEMENT et abandonnent si le PTY est
+    // en 0×0 (« Failed to get size of terminal! »). On n'exécute donc le programme qu'une fois la tuile
+    // réellement dimensionnée (déclenché aussi par onWidthChanged/onHeightChanged du widget).
+    function _launchWhenSized() {
+        if (!tile._pendingStart || tile.started)
+            return
+        if (term.width > 0 && term.height > 0 && term.lines > 0 && term.columns > 0) {
+            tile._pendingStart = false
+            tile._startedAt = Date.now()
+            session.startShellProgram()
+            tile.started = true
+        }
     }
 
     // Fin du process : signale toujours `finished()` (comportement shell inchangé), puis relance
@@ -93,6 +107,10 @@ Item {
         // Rendu CPU (QImage) plutôt que FBO/GL : indépendant du contexte de la fenêtre,
         // donc robuste quand la tuile change de fenêtre (re-parentage par le Panel).
         useFBORendering: false
+
+        // Lance le programme dès que le widget obtient une taille réelle (cf. _launchWhenSized).
+        onWidthChanged: Qt.callLater(tile._launchWhenSized)
+        onHeightChanged: Qt.callLater(tile._launchWhenSized)
 
         enableBold: true
         enableItalic: true
