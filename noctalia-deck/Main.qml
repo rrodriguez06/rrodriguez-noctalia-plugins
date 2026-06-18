@@ -159,14 +159,15 @@ Item {
         t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
         t.fontSize = Qt.binding(function () { return root.cfgFontSize })
         t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
+        // Onglet service terminé (ex. on quitte btop) → recrée CETTE tuile (session fraîche).
+        t.relaunchRequested.connect(function () { root._recreateTileAt(root.tiles.indexOf(t)) })
         return t
     }
 
-    // « Nouvelle session » = VRAIE session fraîche : on RECRÉE la tuile de l'onglet courant (nouveau
-    // shell, dossier par défaut, scrollback vide) et on détruit l'ancienne (son process est tué). Un
-    // simple startShellProgram() ne relancerait pas un shell encore vivant et garderait l'historique.
-    function newSession() {
-        var idx = root.currentTab
+    // Recrée la tuile à l'index donné = VRAIE session fraîche (nouveau shell, dossier par défaut,
+    // scrollback vide) ; l'ancienne est détruite (son process est tué). Bien plus fiable qu'un
+    // startShellProgram() en place : il ne relance ni un shell vivant, ni une session déjà terminée.
+    function _recreateTileAt(idx) {
         if (idx < 0 || idx >= root.tiles.length)
             return
         var old = root.tiles[idx]
@@ -179,6 +180,9 @@ Item {
         if (old) { old.visible = false; Qt.callLater(function () { old.destroy() }) }
         root._writeLive()       // theming live de la nouvelle tuile
     }
+
+    // « Nouvelle session » (widget/IPC) : recrée la tuile de l'onglet courant.
+    function newSession() { root._recreateTileAt(root.currentTab) }
 
     function _createTiles() {
         root._tileComp = Qt.createComponent("TerminalTile.qml")

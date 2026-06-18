@@ -39,6 +39,7 @@ Item {
     // --- signaux ---
     signal finished()
     signal lostFocus()
+    signal relaunchRequested()   // onglet service terminé → Main recrée la tuile (session fraîche)
 
     // --- API ---
     function start() {
@@ -59,13 +60,6 @@ Item {
         launchTimer.restart()
     }
 
-    function restart() {
-        tile.started = false
-        tile._pendingStart = true
-        launchTimer.restart()   // délai : laisse aussi une session précédente se terminer proprement
-        Qt.callLater(tile.focusTerminal)
-    }
-
     // Beaucoup de TUIs (btop…) lisent la taille du terminal AU LANCEMENT et abandonnent si le PTY est
     // en 0×0 (« Failed to get size of terminal! »). On n'exécute donc le programme qu'une fois la tuile
     // réellement dimensionnée (déclenché aussi par onWidthChanged/onHeightChanged du widget).
@@ -84,8 +78,11 @@ Item {
     // si onglet service ET process suffisamment vivace (sinon garde anti-spin).
     function _onFinished() {
         tile.finished()
+        // Onglet service (btop…) : demander à Main de RECRÉER la tuile (session fraîche). Relancer en
+        // place via startShellProgram() ne marche pas de façon fiable sur une session déjà terminée.
+        // Garde anti-spin : seulement si le process a vécu assez longtemps (sinon commande absente/échec).
         if (tile.autoRelaunch && tile.started && (Date.now() - tile._startedAt) > tile._minLifeMs)
-            tile.restart()
+            tile.relaunchRequested()
     }
 
     function focusTerminal() { term.forceActiveFocus() }
