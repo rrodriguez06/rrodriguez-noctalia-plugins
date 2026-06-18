@@ -244,7 +244,10 @@ Item {
             root._tileComp.statusChanged.connect(finish)
     }
 
-    Component.onCompleted: root._createTiles()
+    Component.onCompleted: {
+        Quickshell.execDetached(["sh", "-c", "echo '=== noctalia-deck session start ===' > /tmp/noctalia-deck-debug.log"])   // [DIAG]
+        root._createTiles()
+    }
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
     IpcHandler {

@@ -81,13 +81,17 @@ Item {
     function copy() { term.copyClipboard() }
     function paste() { term.pasteClipboard() }
 
-    // [DIAG 0.3.8] état du terminal (taille, lignes, position scrollbar) à un instant donné.
+    // [DIAG] qs redirige stdout/stderr vers /dev/null → on écrit le diagnostic dans un FICHIER.
+    function dlog(m) {
+        Quickshell.execDetached(["sh", "-c", 'printf "%s %s\\n" "$(date +%H:%M:%S.%N)" "$1" >> /tmp/noctalia-deck-debug.log', "sh", m])
+    }
     function logState(tag) {
-        Logger.i("NoctaliaDeck", tag + " id=" + tile.shellProgram
+        tile.dlog(tag + " id=" + tile.shellProgram
             + " tile=" + Math.round(tile.width) + "x" + Math.round(tile.height)
             + " term=" + Math.round(term.width) + "x" + Math.round(term.height)
             + " lines=" + term.lines + " cols=" + term.columns
-            + " sbCur=" + term.scrollbarCurrentValue + " sbMax=" + term.scrollbarMaximum)
+            + " sbCur=" + term.scrollbarCurrentValue + " sbMax=" + term.scrollbarMaximum
+            + " hasProc=" + session.hasActiveProcess)
     }
 
     // Live theming : présent uniquement avec le fork qmltermwidget-noctalia (slot applyColorSchemeFile).
@@ -112,8 +116,8 @@ Item {
         // Tant qu'un lancement est en attente, re-déclenche le timer à chaque changement de taille :
         // on ne démarre le programme qu'une fois la taille stabilisée (cf. launchTimer / _launchWhenSized).
         // [DIAG 0.3.8] log de tout resize du terminal (pour traquer l'artefact prompt-en-haut).
-        onWidthChanged: { if (tile._pendingStart) launchTimer.restart(); Logger.i("NoctaliaDeck", "TERM-RESIZE id=" + tile.shellProgram + " w=" + width + " h=" + height + " lines=" + lines + " cols=" + columns + " sbCur=" + scrollbarCurrentValue + " sbMax=" + scrollbarMaximum) }
-        onHeightChanged: { if (tile._pendingStart) launchTimer.restart(); Logger.i("NoctaliaDeck", "TERM-RESIZE id=" + tile.shellProgram + " w=" + width + " h=" + height + " lines=" + lines + " cols=" + columns + " sbCur=" + scrollbarCurrentValue + " sbMax=" + scrollbarMaximum) }
+        onWidthChanged: { if (tile._pendingStart) launchTimer.restart(); tile.dlog("TERM-RESIZE id=" + tile.shellProgram + " w=" + Math.round(width) + " h=" + Math.round(height) + " lines=" + lines + " cols=" + columns + " sbCur=" + scrollbarCurrentValue + " sbMax=" + scrollbarMaximum) }
+        onHeightChanged: { if (tile._pendingStart) launchTimer.restart(); tile.dlog("TERM-RESIZE id=" + tile.shellProgram + " w=" + Math.round(width) + " h=" + Math.round(height) + " lines=" + lines + " cols=" + columns + " sbCur=" + scrollbarCurrentValue + " sbMax=" + scrollbarMaximum) }
 
         enableBold: true
         enableItalic: true
