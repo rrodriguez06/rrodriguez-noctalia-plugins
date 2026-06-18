@@ -51,7 +51,9 @@ Item {
     function _attachTile() {
         var t = root.mainInstance ? root.mainInstance.tileItem : null
         if (t) {
-            t.parent = termClip
+            // IMPORTANT : re-parenter dans le contentItem interne de ClippingRectangle (et non sa
+            // racine), sinon la tuile n'est pas capturée par le ShaderEffectSource → pas d'arrondi.
+            t.parent = termClip.contentItem
             Qt.callLater(t.focusTerminal)
         }
     }

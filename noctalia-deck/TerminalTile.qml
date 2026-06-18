@@ -60,8 +60,7 @@ Item {
 
     QMLTermWidget {
         id: term
-        anchors.fill: parent
-        anchors.rightMargin: 8 * Style.uiScaleRatio   // place pour la scrollbar
+        anchors.fill: parent   // remplit tout (padding symétrique) ; la scrollbar se superpose
 
         font.family: tile.fontFamily
         font.pointSize: tile.fontSize
