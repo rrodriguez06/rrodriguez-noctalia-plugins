@@ -10,13 +10,14 @@ import qs.Services.UI
 // que le plugin. Le Panel natif Noctalia ne fait que la re-parenter visuellement (voir Panel.qml).
 //
 // Thème : en mode "noctalia", on GÉNÈRE un .colorscheme depuis les tokens Color.* (bg/fg/accents
-// extraits du wallpaper par Noctalia) et on le régénère à chaque changement de palette. qmltermwidget
-// ne sait charger un schéma que depuis $COLORSCHEMES_DIR → voir env-hyprland.d/noctalia-deck.sh.
+// extraits du wallpaper) et on le régénère à chaque changement de palette. qmltermwidget ne charge
+// les schémas que depuis $COLORSCHEMES_DIR, et son ColorSchemeManager IGNORE définitivement ce
+// dossier s'il n'existe pas à l'init → on s'assure qu'il existe + est peuplé AVANT de créer la tuile
+// (et idéalement avant qs : voir env-hyprland.d/noctalia-deck.sh).
 Item {
     id: root
     property var pluginApi: null
 
-    // Dossier des schémas (DOIT correspondre à COLORSCHEMES_DIR dans l'env uwsm).
     readonly property string schemesDir: (Quickshell.env("HOME") || "~") + "/.local/share/noctalia-deck/colorschemes"
     readonly property string builtinSchemesDir: "/usr/lib/qt6/qml/QMLTermWidget/color-schemes"
 
@@ -33,7 +34,6 @@ Item {
     readonly property bool cfgShowToasts: (s && s.showToasts !== undefined) ? s.showToasts : true
 
     // ── Schéma effectif ──────────────────────────────────────────────────────
-    // "scheme" : built-in choisi. "noctalia" : schéma généré (nom incrémenté), repli clair/sombre.
     property string genName: ""
     property int genCounter: 0
     function _isDarkTheme() {
@@ -57,15 +57,14 @@ Item {
         s += root._blk("BackgroundIntense", Color.mSurfaceVariant)
         s += root._blk("Foreground", Color.mOnSurface)
         s += root._blk("ForegroundIntense", Color.mOnSurface)
-        // ANSI : on mappe les accents Noctalia (extraits du wallpaper) sur les couleurs visibles.
-        s += root._blk("Color0", Color.mSurfaceVariant)   // black
-        s += root._blk("Color1", Color.mError)            // red
-        s += root._blk("Color2", Color.mTertiary)         // green
-        s += root._blk("Color3", Color.mSecondary)        // yellow
-        s += root._blk("Color4", Color.mPrimary)          // blue
-        s += root._blk("Color5", Color.mSecondary)        // magenta
-        s += root._blk("Color6", Color.mTertiary)         // cyan
-        s += root._blk("Color7", Color.mOnSurface)        // white
+        s += root._blk("Color0", Color.mSurfaceVariant)
+        s += root._blk("Color1", Color.mError)
+        s += root._blk("Color2", Color.mTertiary)
+        s += root._blk("Color3", Color.mSecondary)
+        s += root._blk("Color4", Color.mPrimary)
+        s += root._blk("Color5", Color.mSecondary)
+        s += root._blk("Color6", Color.mTertiary)
+        s += root._blk("Color7", Color.mOnSurface)
         s += root._blk("Color0Intense", Color.mOnSurfaceVariant)
         s += root._blk("Color1Intense", Color.mError)
         s += root._blk("Color2Intense", Color.mTertiary)
@@ -78,28 +77,26 @@ Item {
         return s
     }
 
+    // Écrit le schéma généré sous un nom incrémenté (contourne le cache de qmltermwidget), puis
+    // bascule dessus une fois le fichier écrit.
     Process {
         id: schemeWriter
         property string pendingName: ""
         onExited: code => { if (code === 0) root.genName = schemeWriter.pendingName }
     }
-
     function regenerateScheme() {
         if (root.cfgThemeMode !== "noctalia" || !root.schemesDir)
             return
         root.genCounter += 1
         var name = "NoctaliaDeck" + root.genCounter
-        var path = root.schemesDir + "/" + name + ".colorscheme"
         schemeWriter.pendingName = name
-        // Nettoie les anciens schémas générés puis écrit le nouveau (contenu passé en argument
-        // positionnel $2 → pas d'interprétation shell).
         schemeWriter.command = ["sh", "-c",
-            'd="$(dirname "$1")"; mkdir -p "$d"; rm -f "$d"/NoctaliaDeck*.colorscheme; printf "%s" "$2" > "$1"',
-            "sh", path, root._schemeContent()]
+            'd="$1"; mkdir -p "$d"; rm -f "$d"/NoctaliaDeck*.colorscheme; printf "%s" "$3" > "$d/$2.colorscheme"',
+            "sh", root.schemesDir, name, root._schemeContent()]
         schemeWriter.running = true
     }
 
-    // Régénère (debounced) quand la palette change (changement de wallpaper) ou quand on passe en mode noctalia.
+    // Régénère (debounced) au changement de palette (wallpaper) ou en repassant en mode noctalia.
     property color paletteKey: Color.mPrimary
     onPaletteKeyChanged: regenDebounce.restart()
     onCfgThemeModeChanged: if (cfgThemeMode === "noctalia") regenDebounce.restart()
@@ -112,14 +109,7 @@ Item {
     function reclaimTile() { if (root.tileItem) root.tileItem.parent = root }
     function newSession() { if (root.tileItem) root.tileItem.restart() }
 
-    Component.onCompleted: {
-        // Prépare le dossier des schémas : crée + recopie les built-ins (pour garder le mode "scheme"
-        // si COLORSCHEMES_DIR remplace le dossier système).
-        Quickshell.execDetached(["sh", "-c",
-            'mkdir -p "$1"; cp -f "$2"/*.colorscheme "$1"/ 2>/dev/null || true',
-            "sh", root.schemesDir, root.builtinSchemesDir])
-
-        // Tuile (création différée + isolée : import QMLTermWidget manquant ne casse pas tout).
+    function _createTile() {
         var comp = Qt.createComponent("TerminalTile.qml")
         function finish() {
             if (comp.status === Component.Error) {
@@ -146,9 +136,23 @@ Item {
             finish()
         else
             comp.statusChanged.connect(finish)
+    }
 
-        // Génère le schéma initial calé sur la palette courante.
-        regenDebounce.restart()
+    // Prépare le dossier (mkdir + copie des built-ins + schéma initial) PUIS crée la tuile.
+    // Séquencer garantit que le dossier existe avant l'init du ColorSchemeManager (1ère tuile).
+    Process {
+        id: prepProcess
+        onExited: code => {
+            root.genName = "NoctaliaDeck1"
+            root._createTile()
+        }
+    }
+    Component.onCompleted: {
+        root.genCounter = 1
+        prepProcess.command = ["sh", "-c",
+            'd="$1"; mkdir -p "$d"; cp -f "$3"/*.colorscheme "$d"/ 2>/dev/null; rm -f "$d"/NoctaliaDeck*.colorscheme; printf "%s" "$2" > "$d/NoctaliaDeck1.colorscheme"',
+            "sh", root.schemesDir, root._schemeContent(), root.builtinSchemesDir]
+        prepProcess.running = true
     }
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
