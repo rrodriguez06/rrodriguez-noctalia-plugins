@@ -30,10 +30,16 @@ doit être rendu inscriptible **une seule fois** :
 sudo chown "$USER" /usr/lib/qt6/qml/QMLTermWidget/color-schemes
 ```
 
-Ensuite, en mode **« Thème Noctalia (auto) »**, le terminal suit la palette du wallpaper et se met à
-jour en live. Pas de relogin. (À refaire après une mise à jour du paquet `qmltermwidget`, qui
-réinitialise le propriétaire du dossier.) Si le dossier n'est pas inscriptible, le mode auto retombe
-sur un schéma clair/sombre, et le mode « Schéma terminal » fonctionne toujours.
+Ensuite, en mode **« Thème Noctalia (auto) »**, le terminal se cale sur la palette du wallpaper.
+(À refaire après une mise à jour du paquet `qmltermwidget`, qui réinitialise le propriétaire du
+dossier.) Si le dossier n'est pas inscriptible, le mode auto retombe sur un schéma clair/sombre, et le
+mode « Schéma terminal » fonctionne toujours.
+
+> **Limite de qmltermwidget (pas un bug du plugin)** : son `ColorSchemeManager` ne scanne les schémas
+> qu'une seule fois (au premier `setColorScheme`) et `setColorScheme` ignore tout nom absent de cette
+> liste figée. Conséquence : le thème reflète la palette **au démarrage du shell** et **ne suit pas le
+> wallpaper en live** — un **relog** le réactualise. (La transparence de fond, qui aurait permis un
+> suivi live, est ignorée par ce build.)
 
 > Pour l'attache à la barre, l'option globale Noctalia **« attacher les panneaux à la barre »** doit
 > être active (Réglages → interface). Sinon le terminal s'affiche flottant (clic-dehors, focus et
