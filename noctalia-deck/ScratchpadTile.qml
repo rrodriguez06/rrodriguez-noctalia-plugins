@@ -56,7 +56,11 @@ Item {
         bgColor: Color.mSurface
         textColor: Color.mOnSurface
         dimColor: Color.mOnSurfaceVariant
-        accentColor: Color.mPrimary
+        // Coloration distincte par rôle (lisibilité) :
+        accentColor: Color.mPrimary            // RÉSULTAT (inlay) — la couleur la plus distincte + gras
+        numberColor: Color.mTertiary           // chiffres / devises / variables
+        operatorColor: Color.mOnSurfaceVariant // opérateurs (atténués, ce sont des « liants »)
+        unitColor: Color.mSecondary            // unités / mots-clés (to, en, today…)
     }
 
     // ── Recalcul (debounce) ───────────────────────────────────────────────────
@@ -146,6 +150,8 @@ Item {
                 res = res.substring(1, res.length - 1)     // dates renvoyées entre guillemets
             if (tile._isBadResult(res, tile._massage(spans[k].text)))
                 continue
+            // Nettoie les zéros traînants ($1747.200000 → $1747.2, 100.00 → 100) ; n'altère ni dates ni entiers.
+            res = res.replace(/(\.\d*?)0+(?=\D|$)/g, "$1").replace(/\.(?=\D|$)/g, "")
             inlays.push({ "block": spans[k].block, "col": spans[k].endCol, "text": " = " + res })
         }
         editor.setInlays(inlays)

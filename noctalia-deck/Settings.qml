@@ -15,6 +15,7 @@ ColumnLayout {
     property string schemeName_: "Solarized"
     property string fontFamily_: ""
     property int fontSize_: 11
+    property int scratchpadFontSize_: 13
     property string shellProgram_: ""
     property string procMonCommand_: "btop"
     property bool showToasts_: true
@@ -32,6 +33,7 @@ ColumnLayout {
         schemeName_ = s.schemeName ?? "Solarized"
         fontFamily_ = s.fontFamily ?? ""
         fontSize_ = s.fontSize ?? 11
+        scratchpadFontSize_ = s.scratchpadFontSize ?? 13
         shellProgram_ = s.shellProgram ?? ""
         procMonCommand_ = s.procMonCommand ?? "btop"
         showToasts_ = s.showToasts ?? true
@@ -51,6 +53,7 @@ ColumnLayout {
         s.schemeName = root.schemeName_
         s.fontFamily = root.fontFamily_
         s.fontSize = root.fontSize_
+        s.scratchpadFontSize = root.scratchpadFontSize_
         s.shellProgram = root.shellProgram_
         s.procMonCommand = root.procMonCommand_
         s.showToasts = root.showToasts_
@@ -229,6 +232,17 @@ ColumnLayout {
                     from: 6; to: 28; stepSize: 1
                     value: root.fontSize_
                     onValueChanged: { root.fontSize_ = value; saveSettings() }
+                }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.marginXS
+                NLabel { label: pluginApi?.tr("settings.scratchpadFontSize"); description: pluginApi?.tr("settings.scratchpadFontSizeDesc") + " (" + root.scratchpadFontSize_ + ")" }
+                NSlider {
+                    Layout.fillWidth: true
+                    from: 8; to: 28; stepSize: 1
+                    value: root.scratchpadFontSize_
+                    onValueChanged: { root.scratchpadFontSize_ = value; saveSettings() }
                 }
             }
         }

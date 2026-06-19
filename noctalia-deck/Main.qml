@@ -31,6 +31,7 @@ Item {
     readonly property string cfgScheme: (s && s.schemeName) ? s.schemeName : "Solarized"
     readonly property string cfgFontFamily: (s && s.fontFamily && s.fontFamily.length > 0) ? s.fontFamily : "monospace"
     readonly property int cfgFontSize: (s && s.fontSize) ? s.fontSize : 11
+    readonly property int cfgScratchpadFontSize: (s && s.scratchpadFontSize) ? s.scratchpadFontSize : 13
     readonly property string cfgShell: (s && s.shellProgram) ? s.shellProgram : ""
     readonly property string cfgProcMonCommand: (s && s.procMonCommand && s.procMonCommand.length > 0) ? s.procMonCommand : "btop"
     readonly property bool cfgShowToasts: (s && s.showToasts !== undefined) ? s.showToasts : true
@@ -220,7 +221,7 @@ Item {
         if (!t)
             return null
         t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
-        t.fontSize = Qt.binding(function () { return root.cfgFontSize })
+        t.fontSize = Qt.binding(function () { return root.cfgScratchpadFontSize })
         t.width = Qt.binding(function () { return root.deckContentW })
         t.height = Qt.binding(function () { return root.deckContentH })
         // Theming via les tokens Color.* (à l'intérieur de la tuile) ; pas de colorScheme / finished / autoRelaunch.
