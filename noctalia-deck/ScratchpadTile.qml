@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import qs.Commons
 import NoctaliaScratchpad 1.0
 
@@ -47,5 +49,34 @@ Item {
         textColor: Color.mOnSurface
         dimColor: Color.mOnSurfaceVariant
         accentColor: Color.mPrimary
+    }
+
+    // Presse-papier via wl-clipboard : QClipboard est inerte en surface layer-shell Quickshell
+    // (même contrainte que TerminalTile). copyRequested porte le texte sélectionné (fantômes exclus).
+    Connections {
+        target: editor
+        function onCopyRequested(text) {
+            if (!text || text.length === 0)
+                return
+            var esc = text.replace(/'/g, "'\\''")   // échappement single-quote pour sh
+            Quickshell.execDetached(["sh", "-c", "printf '%s' '" + esc + "' | wl-copy"])
+        }
+        function onPasteRequested() {
+            if (!pasteProc.running)
+                pasteProc.running = true
+        }
+    }
+
+    Process {
+        id: pasteProc
+        command: ["wl-paste", "--no-newline"]
+        stdout: StdioCollector {}
+        onExited: (code, status) => {
+            if (code === 0) {
+                var t = String(pasteProc.stdout.text)
+                if (t.length > 0)
+                    editor.insertPlainText(t)
+            }
+        }
     }
 }
