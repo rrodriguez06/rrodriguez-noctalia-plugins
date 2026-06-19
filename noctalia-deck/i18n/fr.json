@@ -24,6 +24,16 @@
     "toast": {
         "sessionEnded": "Session terminée — clic droit sur le widget pour une nouvelle session."
     },
+    "scratchpad": {
+        "notes": "Notes",
+        "newNote": "Nouvelle note",
+        "deleteNote": "Supprimer la note",
+        "toggleDrawer": "Notes",
+        "titlePlaceholder": "Titre de la note",
+        "firstNoteTitle": "Note 1",
+        "noteWord": "Note",
+        "untitled": "Sans titre"
+    },
     "launcher": {
         "toggle": "Basculer le terminal",
         "toggleDesc": "Afficher ou masquer le terminal Noctalia Deck"

@@ -217,7 +217,7 @@ Item {
     }
 
     function _makeScratchTile(comp, spec) {
-        var t = comp.createObject(tileHolder, {})
+        var t = comp.createObject(tileHolder, { "pluginApi": root.pluginApi })
         if (!t)
             return null
         t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
