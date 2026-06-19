@@ -113,15 +113,19 @@ Item {
     //               on le quitte (ex. « q » dans btop). Couleurs gérées par Noctalia (template btop).
     readonly property string _shell: (Quickshell.env("SHELL") && Quickshell.env("SHELL").length > 0) ? Quickshell.env("SHELL") : "/bin/sh"
     readonly property var tabsModel: [
-        { "id": "shell",   "icon": "terminal", "shellProgram": root.cfgShell, "shellArgs": [],                                       "autoRelaunch": false },
-        { "id": "procmon", "icon": "activity", "shellProgram": root._shell,   "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  }
+        { "id": "shell",      "type": "terminal",   "icon": "terminal",   "shellProgram": root.cfgShell, "shellArgs": [],                                       "autoRelaunch": false },
+        { "id": "procmon",    "type": "terminal",   "icon": "activity",   "shellProgram": root._shell,   "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  },
+        { "id": "scratchpad", "type": "scratchpad", "icon": "calculator", "shellProgram": "",            "shellArgs": [],                                       "autoRelaunch": false }
     ]
 
     // ── Les tuiles persistantes ──────────────────────────────────────────────
     property var tiles: []
     property int currentTab: 0
     property bool depAvailable: true
-    property var _tileComp: null   // composant TerminalTile chargé (réutilisé pour « Nouvelle session »)
+    // Registre de composants de tuile par type ("terminal" → TerminalTile, "scratchpad" → ScratchpadTile),
+    // mémoïsé. Remplace l'ancien _tileComp unique (qui hardcodait TerminalTile pour TOUS les onglets).
+    property var _comps: ({})
+    property var _placeholderComp: null   // composant de repli (module de tuile absent)
 
     // Taille STABILISÉE de la zone terminal. Panel.reportContentSize() la met à jour via un debounce :
     // pendant l'animation d'ouverture du panel (termClip 0→plein), la valeur reste FIGÉE → les tuiles,
@@ -164,10 +168,30 @@ Item {
     // Crée (SANS démarrer) une tuile depuis une entrée de tabsModel, parentée au holder. Le démarrage
     // se fait au 1er attachement au panel (Panel._attachTiles) → directement à la taille du panel, sans
     // resize depuis le holder (pas d'artefact de scroll).
+    // Charge (et mémoïse) le composant de tuile pour un type donné.
+    function _ensureComp(type) {
+        if (root._comps[type] !== undefined)
+            return root._comps[type]
+        var file = (type === "scratchpad") ? "ScratchpadTile.qml" : "TerminalTile.qml"
+        var c = Qt.createComponent(file)
+        var m = root._comps
+        m[type] = c
+        root._comps = m
+        return c
+    }
+
+    // Dispatcher : choisit le composant selon spec.type et délègue à la fabrique adéquate.
     function _makeTile(spec) {
-        if (!root._tileComp || root._tileComp.status !== Component.Ready)
+        var comp = root._ensureComp(spec.type)
+        if (!comp || comp.status !== Component.Ready)
             return null
-        var t = root._tileComp.createObject(tileHolder, {
+        if (spec.type === "scratchpad")
+            return root._makeScratchTile(comp, spec)
+        return root._makeTerminalTile(comp, spec)
+    }
+
+    function _makeTerminalTile(comp, spec) {
+        var t = comp.createObject(tileHolder, {
             "shellProgram": spec.shellProgram,
             "shellArgs": spec.shellArgs,
             "autoRelaunch": spec.autoRelaunch
@@ -188,6 +212,32 @@ Item {
             if (t.autoRelaunch && (Date.now() - t._startedAt) > t._minLifeMs)
                 root._recreateTileAt(root.tiles.indexOf(t))
         })
+        return t
+    }
+
+    function _makeScratchTile(comp, spec) {
+        var t = comp.createObject(tileHolder, {})
+        if (!t)
+            return null
+        t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
+        t.fontSize = Qt.binding(function () { return root.cfgFontSize })
+        t.width = Qt.binding(function () { return root.deckContentW })
+        t.height = Qt.binding(function () { return root.deckContentH })
+        // Theming via les tokens Color.* (à l'intérieur de la tuile) ; pas de colorScheme / finished / autoRelaunch.
+        return t
+    }
+
+    // Tuile de repli si le composant d'un type non-terminal n'a pas pu se charger (module C++ absent).
+    function _makePlaceholderTile(spec) {
+        if (!root._placeholderComp)
+            root._placeholderComp = Qt.createComponent("PlaceholderTile.qml")
+        if (!root._placeholderComp || root._placeholderComp.status !== Component.Ready)
+            return null
+        var t = root._placeholderComp.createObject(tileHolder, { "pluginApi": root.pluginApi })
+        if (!t)
+            return null
+        t.width = Qt.binding(function () { return root.deckContentW })
+        t.height = Qt.binding(function () { return root.deckContentH })
         return t
     }
 
@@ -212,34 +262,54 @@ Item {
     function newSession() { root._recreateTileAt(root.currentTab) }
 
     function _createTiles() {
-        root._tileComp = Qt.createComponent("TerminalTile.qml")
-        function finish() {
-            if (root._tileComp.status === Component.Error) {
-                root.depAvailable = false
-                ToastService.showError(root.pluginApi ? root.pluginApi.tr("error.missingDep")
-                                                      : "Noctalia Deck : qmltermwidget manquant (pacman -S qmltermwidget)")
-                Logger.e("NoctaliaDeck", "TerminalTile load error: " + root._tileComp.errorString())
-                return
-            }
-            if (root._tileComp.status !== Component.Ready)
-                return
-            var created = []
-            for (var i = 0; i < root.tabsModel.length; i++) {
-                var t = root._makeTile(root.tabsModel[i])
-                if (!t) {
+        // Composants nécessaires (un par type distinct présent dans tabsModel).
+        var termComp = root._ensureComp("terminal")
+        var hasScratch = false
+        for (var k = 0; k < root.tabsModel.length; k++)
+            if (root.tabsModel[k].type === "scratchpad") { hasScratch = true; break }
+        var scratchComp = hasScratch ? root._ensureComp("scratchpad") : null
+
+        function settled(c) { return !c || c.status === Component.Ready || c.status === Component.Error }
+        function tryBuild() {
+            if (settled(termComp) && settled(scratchComp))
+                root._buildAllTiles(termComp)
+        }
+        if (settled(termComp) && settled(scratchComp)) {
+            root._buildAllTiles(termComp)
+        } else {
+            if (!settled(termComp)) termComp.statusChanged.connect(tryBuild)
+            if (scratchComp && !settled(scratchComp)) scratchComp.statusChanged.connect(tryBuild)
+        }
+    }
+
+    function _buildAllTiles(termComp) {
+        // La dépendance TERMINAL reste bloquante pour tout le deck (comportement inchangé).
+        if (termComp.status === Component.Error) {
+            root.depAvailable = false
+            ToastService.showError(root.pluginApi ? root.pluginApi.tr("error.missingDep")
+                                                  : "Noctalia Deck : qmltermwidget manquant (pacman -S qmltermwidget)")
+            Logger.e("NoctaliaDeck", "TerminalTile load error: " + termComp.errorString())
+            return
+        }
+        var created = []
+        for (var i = 0; i < root.tabsModel.length; i++) {
+            var spec = root.tabsModel[i]
+            var t = root._makeTile(spec)
+            if (!t) {
+                // Seule la dépendance terminal est bloquante. Un module non-terminal manquant → repli par-tuile.
+                if (spec.type !== "scratchpad") {
                     root.depAvailable = false
                     return
                 }
-                created.push(t)
+                t = root._makePlaceholderTile(spec)
+                if (!t)
+                    continue   // dernier recours (ne devrait pas arriver) : on saute l'onglet
             }
-            root.tiles = created   // assignation (pas push) → notifie le Panel
-            // Si le fork est présent → applique tout de suite les couleurs live du wallpaper.
-            root._writeLive()
+            created.push(t)
         }
-        if (root._tileComp.status === Component.Ready)
-            finish()
-        else
-            root._tileComp.statusChanged.connect(finish)
+        root.tiles = created   // assignation (pas push) → notifie le Panel
+        // Si le fork est présent → applique tout de suite les couleurs live du wallpaper.
+        root._writeLive()
     }
 
     Component.onCompleted: root._createTiles()

@@ -11,13 +11,15 @@
     },
     "tab": {
         "shell": "Shell",
-        "procmon": "Moniteur"
+        "procmon": "Moniteur",
+        "scratchpad": "Bloc-notes"
     },
     "error": {
         "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",
         "missingDepLong": "Noctalia Deck nécessite le paquet « qmltermwidget » :\n\n  pacman -S qmltermwidget\n\npuis redémarrez le shell.",
         "missingDepTitle": "Dépendance manquante",
-        "schemeDirRO": "Thème Noctalia : rends le dossier de schémas inscriptible →  sudo chown \"$USER\" /usr/lib/qt6/qml/QMLTermWidget/color-schemes"
+        "schemeDirRO": "Thème Noctalia : rends le dossier de schémas inscriptible →  sudo chown \"$USER\" /usr/lib/qt6/qml/QMLTermWidget/color-schemes",
+        "missingScratchpadModule": "Module éditeur « NoctaliaScratchpad » non installé.\n\n  cd noctalia-scratchpad && makepkg -si\n\npuis redémarrez le shell."
     },
     "toast": {
         "sessionEnded": "Session terminée — clic droit sur le widget pour une nouvelle session."
