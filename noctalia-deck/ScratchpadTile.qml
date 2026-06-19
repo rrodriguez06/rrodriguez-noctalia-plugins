@@ -223,13 +223,15 @@ Item {
                         radius: Style.radiusS
                         readonly property bool isCurrent: noteRow.modelData.id === tile.currentId
                         color: isCurrent ? Qt.alpha(Color.mPrimary, 0.22)
-                                         : (rowMouse.containsMouse ? Color.mHover : "transparent")
+                                         : (rowHover.hovered ? Color.mHover : "transparent")
+
+                        // HoverHandler (passif) : reste « hovered » même au-dessus du bouton corbeille →
+                        // plus de flicker (la visibilité du bouton ne dépend plus d'un survol qui s'échange).
+                        HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
 
                         MouseArea {
                             id: rowMouse
                             anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
                             onClicked: tile._openNote(noteRow.modelData.id)
                         }
                         RowLayout {
@@ -247,7 +249,7 @@ Item {
                             NIconButton {
                                 baseSize: Style.baseWidgetSize * 0.7
                                 icon: "trash"
-                                visible: rowMouse.containsMouse || noteRow.isCurrent
+                                visible: rowHover.hovered || noteRow.isCurrent
                                 tooltipText: tile._tr("scratchpad.deleteNote", "Delete note")
                                 colorFg: Color.mError
                                 colorFgHover: Color.mError
