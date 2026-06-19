@@ -67,8 +67,8 @@ Item {
                 return true
         return false
     }
-    // Quand on change de note, on resynchronise le champ titre (sans casser l'édition en cours).
-    onCurrentIdChanged: titleField.text = tile.currentTitle
+    // Recolle le binding du champ titre (cassé par une édition précédente) → reflète toujours la note courante.
+    onCurrentIdChanged: titleField.text = Qt.binding(function () { return tile.currentTitle })
 
     // ── I/O notes ─────────────────────────────────────────────────────────────
     function _saveIndex() {
@@ -222,7 +222,7 @@ Item {
                         height: Math.round(34 * Style.uiScaleRatio)
                         radius: Style.radiusS
                         readonly property bool isCurrent: noteRow.modelData.id === tile.currentId
-                        color: isCurrent ? Color.smartAlpha(Color.mPrimary)
+                        color: isCurrent ? Qt.alpha(Color.mPrimary, 0.22)
                                          : (rowMouse.containsMouse ? Color.mHover : "transparent")
 
                         MouseArea {
@@ -241,7 +241,8 @@ Item {
                                 Layout.fillWidth: true
                                 text: noteRow.modelData.title
                                 elide: Text.ElideRight
-                                color: noteRow.isCurrent ? Color.mPrimary : Color.mOnSurface
+                                color: Color.mOnSurface
+                                font.weight: noteRow.isCurrent ? Style.fontWeightBold : Style.fontWeightRegular
                             }
                             NIconButton {
                                 baseSize: Style.baseWidgetSize * 0.7
@@ -277,6 +278,7 @@ Item {
                 NTextInput {
                     id: titleField
                     Layout.fillWidth: true
+                    text: tile.currentTitle          // binding → suit la note courante (chargement + switch)
                     label: ""
                     showClearButton: false
                     fontSize: Style.fontSizeL
