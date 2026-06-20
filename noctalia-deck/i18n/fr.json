@@ -16,6 +16,9 @@
         "logs": "Logs",
         "closeLogs": "Fermer les logs"
     },
+    "term": {
+        "scrollBottom": "Revenir en bas"
+    },
     "error": {
         "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",
         "missingDepLong": "Noctalia Deck nécessite le paquet « qmltermwidget » :\n\n  pacman -S qmltermwidget\n\npuis redémarrez le shell.",

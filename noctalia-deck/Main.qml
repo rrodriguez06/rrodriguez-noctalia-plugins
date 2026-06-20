@@ -209,6 +209,7 @@ Item {
         t.fontFamily = Qt.binding(function () { return root.cfgFontFamily })
         t.fontSize = Qt.binding(function () { return root.cfgFontSize })
         t.colorScheme = Qt.binding(function () { return root.effectiveScheme })
+        t.scrollBottomTooltip = Qt.binding(function () { return root.pluginApi ? root.pluginApi.tr("term.scrollBottom") : "" })
         // Taille explicite et STABLE (cf. deckContentW/H) → la tuile ne suit PAS l'animation du panel,
         // donc le terminal ne se redimensionne pas (pas de reflow / prompt qui remonte à la ré-ouverture).
         t.width = Qt.binding(function () { return root.deckContentW })

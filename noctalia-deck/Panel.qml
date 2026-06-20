@@ -56,17 +56,25 @@ Item {
                         tabIndex: index
                         checked: tabBar.currentIndex === index
 
-                        // Onglet fermable (logs) : petite croix superposée à droite (ferme via Main.closeLogs).
+                        // Onglet fermable (logs) : croix superposée à droite (ferme via Main.closeLogs).
                         NIconButton {
                             visible: modelData.closable === true
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.rightMargin: Style.marginXS
-                            baseSize: Math.round(Style.baseWidgetSize * 0.55)
+                            baseSize: Math.round(Style.baseWidgetSize * 0.6)
                             icon: "close"
                             tooltipText: root.pluginApi ? root.pluginApi.tr("tab.closeLogs") : "Close"
+                            // Calque la couleur du libellé de l'onglet (même contraste dans TOUS les états :
+                            // survolé / sélectionné / normal) → la croix reste toujours bien visible. La
+                            // pastille de fond/bordure reste transparente ; rouge au survol de la croix.
+                            colorFg: parent.isHovered ? Color.mOnHover
+                                                      : (parent.checked ? Color.mOnPrimary : Color.mOnSurface)
+                            colorFgHover: Color.mError
                             colorBg: "transparent"
+                            colorBgHover: "transparent"
                             colorBorder: "transparent"
+                            colorBorderHover: "transparent"
                             onClicked: if (root.mainInstance) root.mainInstance.closeLogs()
                         }
                     }

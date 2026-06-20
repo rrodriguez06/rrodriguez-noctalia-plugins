@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Widgets
 import QMLTermWidget 2.0
 
 // Tuile « terminal » : encapsule un vrai émulateur (PTY) via QMLTermWidget + QMLTermSession.
@@ -26,6 +27,7 @@ Item {
     property string colorScheme: "Solarized"
     property string fontFamily: "monospace"
     property int fontSize: 11
+    property string scrollBottomTooltip: ""   // libellé du bouton « revenir en bas » (fourni par Main, traduit)
 
     // Onglet « service » : à relancer s'il se termine (ex. on quitte btop avec « q »). La décision de
     // relance est prise par Main (sur le signal `finished`), qui RECRÉE la tuile (session fraîche) —
@@ -79,6 +81,17 @@ Item {
     }
 
     function focusTerminal() { term.forceActiveFocus() }
+
+    // Revenir tout en bas du scrollback (reprend le suivi de la sortie). QMLTermWidget n'expose pas
+    // scrollToEnd() au QML → on simule une molette « vers le bas » d'amplitude suffisante pour couvrir
+    // tout l'historique ; ScrollBar::setValue() clampe (qBound) au maximum, donc on atterrit pile en bas.
+    function scrollToBottom() {
+        var range = term.scrollbarMaximum - term.scrollbarMinimum
+        if (range <= 0)
+            return
+        term.simulateWheel(Math.round(term.width / 2), Math.round(term.height / 2), 0, 0,
+                           Qt.point(0, -120 * (range + 2)))
+    }
     // Copy/paste sont pilotés par les signaux du fork (copyRequested/pasteRequested → Connections plus
     // bas), routés vers wl-copy/wl-paste car QClipboard est inerte dans une surface layer-shell Quickshell.
     function paste() { if (!pasteProc.running) pasteProc.running = true }
@@ -166,6 +179,19 @@ Item {
                 function onScrollbarValueChanged() { sb.opacity = 1; hideTimer.restart() }
             }
             Timer { id: hideTimer; interval: 1200; onTriggered: sb.opacity = 0 }
+        }
+
+        // Bouton « revenir en bas » : apparaît dès qu'on remonte dans le scrollback (shell ET logs) ;
+        // clic → bas, ce qui reprend le suivi de la sortie. Caché en bas / en écran alternatif (btop).
+        NIconButton {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: Style.marginM
+            anchors.bottomMargin: Style.marginM
+            visible: term.scrollbarMaximum > 0 && term.scrollbarCurrentValue < term.scrollbarMaximum
+            icon: "chevron-down"
+            tooltipText: tile.scrollBottomTooltip
+            onClicked: tile.scrollToBottom()
         }
     }
 
