@@ -17,6 +17,7 @@ ColumnLayout {
     property bool notifyOnStateChange: true
     property bool closePanelOnAction: false
     property string terminalCommand: "kitty -e"
+    property bool logsInDeck: false
     property int logTailLines: 200
     property int pollIdle: 45000
     property int pollOpen: 8000
@@ -38,6 +39,7 @@ ColumnLayout {
         notifyOnStateChange = s.notifyOnStateChange ?? true
         closePanelOnAction = s.closePanelOnAction ?? false
         terminalCommand = s.terminalCommand ?? "kitty -e"
+        logsInDeck = s.logsInDeck ?? false
         logTailLines = s.logTailLines ?? 200
         pollIdle = s.pollIdle ?? s.pollIntervalIdleMs ?? 45000
         pollOpen = s.pollOpen ?? s.pollIntervalOpenMs ?? 8000
@@ -58,6 +60,7 @@ ColumnLayout {
         s.notifyOnStateChange = root.notifyOnStateChange
         s.closePanelOnAction = root.closePanelOnAction
         s.terminalCommand = root.terminalCommand
+        s.logsInDeck = root.logsInDeck
         s.logTailLines = root.logTailLines
         s.pollIntervalIdleMs = root.pollIdle
         s.pollIntervalOpenMs = root.pollOpen
@@ -272,6 +275,16 @@ ColumnLayout {
                     text: root.terminalCommand
                     onEditingFinished: { root.terminalCommand = text; saveSettings() }
                 }
+            }
+
+            // Option « logs dans le Deck » : visible seulement si le plugin Noctalia Deck est installé.
+            NToggle {
+                Layout.fillWidth: true
+                visible: root.mainInstance && root.mainInstance.deckInstalled
+                label: pluginApi?.tr("settings.logsInDeck")
+                description: pluginApi?.tr("settings.logsInDeckDesc")
+                checked: root.logsInDeck
+                onToggled: (v) => { root.logsInDeck = v; saveSettings() }
             }
 
             ColumnLayout {

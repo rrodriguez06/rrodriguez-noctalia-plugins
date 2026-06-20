@@ -49,10 +49,26 @@ Item {
                     model: root.mainInstance ? root.mainInstance.tabsModel : []
                     NTabButton {
                         icon: modelData.icon
-                        text: root.pluginApi ? root.pluginApi.tr("tab." + modelData.id) : modelData.id
+                        // Onglet dynamique (logs) → libellé porté par le modèle ; sinon traduction tab.<id>.
+                        text: modelData.title ? modelData.title
+                                              : (root.pluginApi ? root.pluginApi.tr("tab." + modelData.id) : modelData.id)
                         pointSize: Style.fontSizeM
                         tabIndex: index
                         checked: tabBar.currentIndex === index
+
+                        // Onglet fermable (logs) : petite croix superposée à droite (ferme via Main.closeLogs).
+                        NIconButton {
+                            visible: modelData.closable === true
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: Style.marginXS
+                            baseSize: Math.round(Style.baseWidgetSize * 0.55)
+                            icon: "close"
+                            tooltipText: root.pluginApi ? root.pluginApi.tr("tab.closeLogs") : "Close"
+                            colorBg: "transparent"
+                            colorBorder: "transparent"
+                            onClicked: if (root.mainInstance) root.mainInstance.closeLogs()
+                        }
                     }
                 }
             }
@@ -130,7 +146,13 @@ Item {
     Connections {
         target: root.mainInstance
         function onTilesChanged() { root._attachTiles() }
-        function onCurrentTabChanged() { root._syncTabs() }
+        function onCurrentTabChanged() {
+            // currentTab peut changer par programme (openLogs/closeLogs) → on aligne aussi la surbrillance
+            // de l'onglet (sinon seul un clic met à jour tabBar.currentIndex).
+            if (tabBar.currentIndex !== root.mainInstance.currentTab)
+                tabBar.currentIndex = root.mainInstance.currentTab
+            root._syncTabs()
+        }
     }
 
     // Rendre les tuiles à Main AVANT que ce panel ne soit détruit (sinon parent visuel pendouille).

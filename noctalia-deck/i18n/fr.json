@@ -12,7 +12,9 @@
     "tab": {
         "shell": "Shell",
         "procmon": "Moniteur",
-        "scratchpad": "Bloc-notes"
+        "scratchpad": "Bloc-notes",
+        "logs": "Logs",
+        "closeLogs": "Fermer les logs"
     },
     "error": {
         "missingDep": "qmltermwidget est manquant (pacman -S qmltermwidget)",

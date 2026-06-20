@@ -81,6 +81,8 @@
         "closePanelOnActionDesc": "Ferme automatiquement le panneau après une action de contrôle.",
         "terminalCommand": "Commande du terminal",
         "terminalCommandDesc": "Utilisée pour ouvrir un SSH / shell de conteneur (ex. « kitty -e »).",
+        "logsInDeck": "Logs dans le Noctalia Deck",
+        "logsInDeckDesc": "Ouvre les logs « en grand » dans l'onglet dédié du Deck (terminal persistant, accessible partout) plutôt qu'un terminal classique. Visible seulement si le Deck est installé.",
         "logTailLines": "Lignes de logs initiales",
         "logTailLinesDesc": "Nombre de lignes récentes chargées au démarrage du flux.",
         "pollIdle": "Intervalle au repos (ms)",

@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Services.UI
+import qs.Services.Noctalia
 import "drivers/Shared.js" as Shared
 import "drivers/HsrDriver.js" as Hsr
 import "drivers/DockerDriver.js" as Docker
@@ -49,6 +50,10 @@ Item {
     readonly property int logCap: 5000
     property string logTitle: ""
     property string logContainer: ""      // conteneur en cours de stream (pour « ouvrir en grand »)
+
+    // Intégration optionnelle Noctalia Deck : vrai si le plugin noctalia-deck est chargé (cf. _deckMain).
+    // Conditionne l'affichage de l'option « logs dans le Deck » et son routage.
+    property bool deckInstalled: false
 
     property bool panelOpen: false
     property var _prevStates: ({})        // watchdog : dernier état connu par "pid/svc"
@@ -497,14 +502,40 @@ Item {
 
     function stopLogs() { logProc.running = false }
 
-    // Ouvre les logs « en grand » dans un vrai terminal (suit en direct, scrollback complet).
+    // Ouvre les logs « en grand » (suit en direct, scrollback complet). Destination selon le réglage
+    // `logsInDeck` : l'onglet logs dédié du Noctalia Deck s'il est installé (accessible partout, sans
+    // occuper de workspace), sinon un terminal classique. Repli terminal si le Deck est absent/indispo.
     function openLogsInTerminal() {
         var h = root.activeHost()
         if (!h || !root.logContainer) return
         var drv = root.driverFor(h)
         var tail = root.settings()?.logTailLines ?? 200
-        Quickshell.execDetached(root._terminalArgs().concat(drv.logsTerminalArgv(h, root.logContainer, tail)))
+        var argv = drv.logsTerminalArgv(h, root.logContainer, tail)
+        if ((root.settings()?.logsInDeck ?? false)) {
+            var deck = root._deckMain()
+            if (deck && typeof deck.openLogs === "function") {
+                deck.openLogs((root.logTitle && root.logTitle.length > 0) ? root.logTitle : root.logContainer, argv)
+                return
+            }
+            // Deck demandé mais introuvable → repli silencieux sur un terminal classique.
+        }
+        Quickshell.execDetached(root._terminalArgs().concat(argv))
     }
+
+    // ── Détection du Noctalia Deck (autre plugin) ─────────────────────────────
+    // Repéré via le singleton PluginService (en process, sans subprocess/IPC). La clé est composite
+    // (« <hash>:noctalia-deck ») pour les sources tierces, ou simple (« noctalia-deck »).
+    function _deckMain() {
+        var lp = PluginService.loadedPlugins
+        for (var k in lp) {
+            if (k === "noctalia-deck" || k.endsWith(":noctalia-deck")) {
+                var e = lp[k]
+                if (e && e.mainInstance) return e.mainInstance
+            }
+        }
+        return null
+    }
+    function _refreshDeckInstalled() { root.deckInstalled = (root._deckMain() !== null) }
 
     function appendLog(line) {
         var arr = root._logLines
@@ -612,7 +643,14 @@ Item {
         onTriggered: root.pollStatus(true)
     }
 
-    Component.onCompleted: root.pollStatus(false)
+    Component.onCompleted: { root.pollStatus(false); root._refreshDeckInstalled() }
+
+    // Le Deck peut être (dés)activé à chaud → garde `deckInstalled` à jour pour les Settings.
+    Connections {
+        target: PluginService
+        function onPluginLoaded(id) { root._refreshDeckInstalled() }
+        function onPluginUnloaded(id) { root._refreshDeckInstalled() }
+    }
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:home-server-control <fn> ──
     IpcHandler {

@@ -113,11 +113,16 @@ Item {
     //               résoudre le PATH et permettre une ligne de commande arbitraire ; auto-relance si
     //               on le quitte (ex. « q » dans btop). Couleurs gérées par Noctalia (template btop).
     readonly property string _shell: (Quickshell.env("SHELL") && Quickshell.env("SHELL").length > 0) ? Quickshell.env("SHELL") : "/bin/sh"
-    readonly property var tabsModel: [
+    readonly property var _baseTabs: [
         { "id": "shell",      "type": "terminal",   "icon": "terminal",   "shellProgram": root.cfgShell, "shellArgs": [],                                       "autoRelaunch": false },
         { "id": "procmon",    "type": "terminal",   "icon": "activity",   "shellProgram": root._shell,   "shellArgs": ["-c", "exec " + root.cfgProcMonCommand], "autoRelaunch": true  },
         { "id": "scratchpad", "type": "scratchpad", "icon": "calculator", "shellProgram": "",            "shellArgs": [],                                       "autoRelaunch": false }
     ]
+    // Modèle d'onglets EFFECTIF (mutable) : les onglets de base + un éventuel onglet « logs » dynamique
+    // (cf. openLogs, appelé par d'autres plugins). Initialisé depuis _baseTabs dans Component.onCompleted,
+    // AVANT _createTiles (qui l'itère). Reste index-aligné avec `tiles`.
+    property var tabsModel: []
+    property int _logsTabIndex: -1   // index de l'onglet logs courant ; -1 si aucun
 
     // ── Les tuiles persistantes ──────────────────────────────────────────────
     property var tiles: []
@@ -262,6 +267,58 @@ Item {
     // « Nouvelle session » (widget/IPC) : recrée la tuile de l'onglet courant.
     function newSession() { root._recreateTileAt(root.currentTab) }
 
+    // ── Onglet « logs » dynamique ─────────────────────────────────────────────
+    // Ouvre (ou réutilise) un onglet terminal éphémère exécutant `argv` (programme + args, déjà prêts
+    // à exec → AUCUNE re-quote). Pensé pour d'autres plugins (ex. home-server-control) : les logs
+    // suivent en direct, isolés du shell de l'utilisateur, accessibles partout sans occuper de
+    // workspace. Fermable via la croix de l'onglet (closeLogs). `title` = libellé de l'onglet.
+    function openLogs(title, argv) {
+        if (!root.depAvailable || !argv || argv.length === 0)
+            return
+        var spec = {
+            "id": "logs", "type": "terminal", "icon": "file-text",
+            "shellProgram": String(argv[0]), "shellArgs": argv.slice(1),
+            "autoRelaunch": false, "closable": true,
+            "title": (title && String(title).length > 0) ? String(title) : "Logs"
+        }
+        if (root._logsTabIndex >= 0 && root._logsTabIndex < root.tabsModel.length) {
+            // Onglet logs déjà ouvert → nouvelle commande = session fraîche (recrée la tuile en place).
+            var tm = root.tabsModel.slice(); tm[root._logsTabIndex] = spec; root.tabsModel = tm
+            root._recreateTileAt(root._logsTabIndex)
+        } else {
+            // Crée la tuile (parentée au holder, démarrage différé à l'attache au panel), puis l'ajoute
+            // à la fin de tabsModel ET tiles (l'assignation de tiles notifie le Panel → attache + start).
+            var t = root._makeTile(spec)
+            if (!t)
+                return
+            var tm2 = root.tabsModel.slice(); tm2.push(spec); root.tabsModel = tm2
+            var ta = root.tiles.slice(); ta.push(t); root.tiles = ta
+            root._logsTabIndex = root.tabsModel.length - 1
+            root._writeLive()       // theming live de la nouvelle tuile (si fork présent)
+        }
+        root.currentTab = root._logsTabIndex
+        if (root.pluginApi)
+            root.pluginApi.withCurrentScreen(s => root.pluginApi.openPanel(s))
+    }
+
+    // Ferme l'onglet logs : détruit la tuile (tue son process) et retire l'entrée des deux modèles.
+    function closeLogs() {
+        var idx = root._logsTabIndex
+        if (idx < 0 || idx >= root.tiles.length)
+            return
+        var old = root.tiles[idx]
+        var tm = root.tabsModel.slice(); tm.splice(idx, 1)
+        var ta = root.tiles.slice(); ta.splice(idx, 1)
+        root.tabsModel = tm
+        root.tiles = ta            // notifie le Panel (ré-attache la liste réduite)
+        root._logsTabIndex = -1
+        if (old) { old.visible = false; Qt.callLater(function () { old.destroy() }) }
+        if (root.currentTab >= root.tiles.length)
+            root.currentTab = root.tiles.length - 1
+        if (root.currentTab < 0)
+            root.currentTab = 0
+    }
+
     function _createTiles() {
         // Composants nécessaires (un par type distinct présent dans tabsModel).
         var termComp = root._ensureComp("terminal")
@@ -313,7 +370,10 @@ Item {
         root._writeLive()
     }
 
-    Component.onCompleted: root._createTiles()
+    Component.onCompleted: {
+        root.tabsModel = root._baseTabs.slice()   // doit précéder _createTiles (qui itère tabsModel)
+        root._createTiles()
+    }
 
     // ── IPC : qs -c noctalia-shell ipc call plugin:noctalia-deck <fn> ─────────
     IpcHandler {
@@ -331,5 +391,6 @@ Item {
                 root.pluginApi.withCurrentScreen(s => root.pluginApi.closePanel(s))
         }
         function newSession() { root.newSession() }
+        function closeLogs() { root.closeLogs() }
     }
 }
