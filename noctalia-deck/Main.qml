@@ -35,6 +35,7 @@ Item {
     readonly property string cfgShell: (s && s.shellProgram) ? s.shellProgram : ""
     readonly property string cfgProcMonCommand: (s && s.procMonCommand && s.procMonCommand.length > 0) ? s.procMonCommand : "btop"
     readonly property bool cfgShowToasts: (s && s.showToasts !== undefined) ? s.showToasts : true
+    readonly property bool cfgLogsAutoClose: (s && s.logsAutoClose !== undefined) ? s.logsAutoClose : true
 
     // ── Schéma de base (propriété colorScheme du widget) ─────────────────────
     // En mode live, ce built-in n'est qu'une base aussitôt surchargée par applyColorSchemeFile.
@@ -197,6 +198,7 @@ Item {
     }
 
     function _makeTerminalTile(comp, spec) {
+        var isLogs = (spec.id === "logs")
         var t = comp.createObject(tileHolder, {
             "shellProgram": spec.shellProgram,
             "shellArgs": spec.shellArgs,
@@ -214,9 +216,16 @@ Item {
         // Onglet service (autoRelaunch) terminé après avoir vécu assez longtemps (garde anti-spin) →
         // RECRÉE cette tuile (session fraîche). On se branche sur `finished` (signal stable) plutôt que
         // sur un signal dédié, pour rester robuste à un rechargement QML partiel (cf. cache plugin).
+        // Onglet logs : si cfgLogsAutoClose, on FERME l'onglet quand le flux se termine — mais seulement
+        // s'il a vécu > _minLifeMs (un échec immédiat, ex. ssh KO, reste affiché pour lire l'erreur) ET
+        // si c'est toujours la tuile logs courante (une tuile remplacée/détruite a indexOf = -1 → ignorée).
         t.finished.connect(function () {
-            if (t.autoRelaunch && (Date.now() - t._startedAt) > t._minLifeMs)
-                root._recreateTileAt(root.tiles.indexOf(t))
+            var i = root.tiles.indexOf(t)
+            var livedEnough = (Date.now() - t._startedAt) > t._minLifeMs
+            if (t.autoRelaunch && livedEnough)
+                root._recreateTileAt(i)
+            else if (isLogs && root.cfgLogsAutoClose && livedEnough && i >= 0 && i === root._logsTabIndex)
+                root.closeLogs()
         })
         return t
     }

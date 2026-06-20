@@ -19,6 +19,7 @@ ColumnLayout {
     property string shellProgram_: ""
     property string procMonCommand_: "btop"
     property bool showToasts_: true
+    property bool logsAutoClose_: true
 
     property bool _loaded: false
 
@@ -37,6 +38,7 @@ ColumnLayout {
         shellProgram_ = s.shellProgram ?? ""
         procMonCommand_ = s.procMonCommand ?? "btop"
         showToasts_ = s.showToasts ?? true
+        logsAutoClose_ = s.logsAutoClose ?? true
         _loaded = true
     }
 
@@ -57,6 +59,7 @@ ColumnLayout {
         s.shellProgram = root.shellProgram_
         s.procMonCommand = root.procMonCommand_
         s.showToasts = root.showToasts_
+        s.logsAutoClose = root.logsAutoClose_
         pluginApi.saveSettings()
     }
 
@@ -176,6 +179,13 @@ ColumnLayout {
                 description: pluginApi?.tr("settings.showToastsDesc")
                 checked: root.showToasts_
                 onToggled: (v) => { root.showToasts_ = v; saveSettings() }
+            }
+            NToggle {
+                Layout.fillWidth: true
+                label: pluginApi?.tr("settings.logsAutoClose")
+                description: pluginApi?.tr("settings.logsAutoCloseDesc")
+                checked: root.logsAutoClose_
+                onToggled: (v) => { root.logsAutoClose_ = v; saveSettings() }
             }
         }
 

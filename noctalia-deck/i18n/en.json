@@ -59,6 +59,8 @@
         "procMonCommandDesc": "Command run in the Monitor tab (e.g. btop, htop). Empty = btop. Takes effect on the next shell restart.",
         "showToasts": "Notifications",
         "showToastsDesc": "Show a toast when the shell session ends.",
+        "logsAutoClose": "Auto-close the logs tab",
+        "logsAutoCloseDesc": "Close the \"Logs\" tab as soon as the stream ends (container stopped, disconnect…). An immediate failure stays visible so you can read the error.",
         "themeMode": "Color source",
         "themeModeDesc": "Match the global Noctalia theme (follows light/dark) or pick a fixed terminal scheme.",
         "themeNoctalia": "Noctalia theme (auto)",
