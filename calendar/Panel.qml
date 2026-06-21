@@ -21,6 +21,7 @@ Item {
     // Timeline geometry (week/day hour grids).
     readonly property real hourPx: 44 * Style.uiScaleRatio
     readonly property real gutterW: 46 * Style.uiScaleRatio
+    readonly property real topPad: 10 * Style.uiScaleRatio // breathing room above the first hour
 
     // Editor state.
     property bool editing: false
@@ -235,13 +236,13 @@ Item {
         property int startH: 7
         property int endH: 22
         implicitWidth: root.gutterW
-        implicitHeight: (endH - startH) * root.hourPx
+        implicitHeight: (endH - startH) * root.hourPx + root.topPad * 2
         Repeater {
             model: (gut.endH - gut.startH + 1)
             delegate: NText {
                 required property int index
                 width: gut.width - 4
-                y: index * root.hourPx - (height / 2)
+                y: index * root.hourPx + root.topPad - (height / 2)
                 horizontalAlignment: Text.AlignRight
                 text: (gut.startH + index < 10 ? "0" : "") + (gut.startH + index) + ":00"
                 pointSize: Style.fontSizeXS
@@ -257,14 +258,14 @@ Item {
         property int startH: 7
         property int endH: 22
         property bool showNow: false
-        implicitHeight: (endH - startH) * root.hourPx
+        implicitHeight: (endH - startH) * root.hourPx + root.topPad * 2
 
         // hour grid lines
         Repeater {
             model: (col.endH - col.startH + 1)
             delegate: Rectangle {
                 required property int index
-                y: index * root.hourPx
+                y: index * root.hourPx + root.topPad
                 width: col.width
                 height: 1
                 color: Color.mSurfaceVariant
@@ -286,7 +287,7 @@ Item {
                 visible: eH > col.startH && sH < col.endH
                 x: 2
                 width: col.width - 4
-                y: (topH - col.startH) * root.hourPx
+                y: (topH - col.startH) * root.hourPx + root.topPad
                 height: Math.max((botH - topH) * root.hourPx, 14)
                 radius: Style.radiusXS
                 color: Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, 0.22)
@@ -323,7 +324,7 @@ Item {
                 return n.getHours() + n.getMinutes() / 60
             }
             visible: col.showNow && nowH >= col.startH && nowH <= col.endH
-            y: (nowH - col.startH) * root.hourPx
+            y: (nowH - col.startH) * root.hourPx + root.topPad
             width: col.width
             height: 2
             color: Color.mError

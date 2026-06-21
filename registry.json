@@ -63,7 +63,7 @@
     {
       "id": "calendar",
       "name": "Calendar",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Gestionnaire d'emploi du temps : fusionne tes calendriers Google (pro + perso), vues mois/semaine/jour, création/édition/suppression d'événements et synchronisation live. S'appuie sur le backend `calsync` (CLI + daemon).",
