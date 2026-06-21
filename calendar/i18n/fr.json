@@ -1,0 +1,55 @@
+{
+    "ccw": {
+        "tooltip": "Calendrier"
+    },
+    "context": {
+        "today": "Aujourd'hui",
+        "refresh": "Rafraîchir",
+        "settings": "Paramètres"
+    },
+    "panel": {
+        "today": "Aujourd'hui",
+        "month": "Mois",
+        "week": "Semaine",
+        "day": "Jour",
+        "refresh": "Rafraîchir",
+        "add": "Nouvel événement",
+        "allDay": "Journée",
+        "noEvents": "Aucun événement.",
+        "authHint": "Non connecté — lance `calsync auth` dans un terminal."
+    },
+    "editor": {
+        "new": "Nouvel événement",
+        "edit": "Modifier l'événement",
+        "summary": "Titre",
+        "allDay": "Journée entière",
+        "location": "Lieu",
+        "desc": "Description",
+        "delete": "Supprimer",
+        "cancel": "Annuler",
+        "save": "Enregistrer"
+    },
+    "launcher": {
+        "openDesc": "Ouvrir le calendrier",
+        "todayDesc": "Aller à aujourd'hui"
+    },
+    "settings": {
+        "calendars": "Calendriers",
+        "calendarsDesc": "Associe chaque calendrier Google à une source, une couleur et une visibilité.",
+        "idPlaceholder": "id du calendrier (ex. toi@gmail.com)",
+        "removeCal": "Retirer",
+        "addCal": "Ajouter un calendrier",
+        "detect": "Détecter depuis Google",
+        "perso": "Perso",
+        "work": "Pro",
+        "visible": "Visible",
+        "view": "Affichage",
+        "monday": "Lundi",
+        "sunday": "Dimanche",
+        "syncOnOpen": "Synchroniser à l'ouverture du panneau",
+        "ensureDaemon": "Démarrer le daemon de sync live si besoin",
+        "ensureDaemonDesc": "Lance `systemctl --user enable --now calsync` à l'ouverture si le daemon n'est pas actif.",
+        "binPath": "Binaire calsync",
+        "binPathDesc": "Chemin ou nom du CLI calsync (doit être dans le PATH)."
+    }
+}

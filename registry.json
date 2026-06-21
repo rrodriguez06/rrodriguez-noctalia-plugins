@@ -59,6 +59,26 @@
         "launcherProvider": "LauncherProvider.qml",
         "controlCenterWidget": "ControlCenterWidget.qml"
       }
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar",
+      "version": "0.1.0",
+      "author": "rrodriguez06",
+      "license": "MIT",
+      "description": "Gestionnaire d'emploi du temps : fusionne tes calendriers Google (pro + perso), vues mois/semaine/jour, création/édition/suppression d'événements et synchronisation live. S'appuie sur le backend `calsync` (CLI + daemon).",
+      "tags": ["Bar", "Panel", "ControlCenter", "Utility"],
+      "official": false,
+      "minNoctaliaVersion": "4.5.0",
+      "lastUpdated": "2026-06-21T00:00:00Z",
+      "entryPoints": {
+        "main": "Main.qml",
+        "barWidget": "BarWidget.qml",
+        "panel": "Panel.qml",
+        "settings": "Settings.qml",
+        "launcherProvider": "LauncherProvider.qml",
+        "controlCenterWidget": "ControlCenterWidget.qml"
+      }
     }
   ]
 }

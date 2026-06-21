@@ -1,0 +1,55 @@
+{
+    "ccw": {
+        "tooltip": "Calendar"
+    },
+    "context": {
+        "today": "Today",
+        "refresh": "Refresh",
+        "settings": "Settings"
+    },
+    "panel": {
+        "today": "Today",
+        "month": "Month",
+        "week": "Week",
+        "day": "Day",
+        "refresh": "Refresh",
+        "add": "New event",
+        "allDay": "All day",
+        "noEvents": "No events.",
+        "authHint": "Not signed in — run `calsync auth` in a terminal."
+    },
+    "editor": {
+        "new": "New event",
+        "edit": "Edit event",
+        "summary": "Title",
+        "allDay": "All day",
+        "location": "Location",
+        "desc": "Description",
+        "delete": "Delete",
+        "cancel": "Cancel",
+        "save": "Save"
+    },
+    "launcher": {
+        "openDesc": "Open the calendar",
+        "todayDesc": "Jump to today"
+    },
+    "settings": {
+        "calendars": "Calendars",
+        "calendarsDesc": "Map each Google calendar to a source, color and visibility.",
+        "idPlaceholder": "calendar id (e.g. you@gmail.com)",
+        "removeCal": "Remove",
+        "addCal": "Add calendar",
+        "detect": "Detect from Google",
+        "perso": "Personal",
+        "work": "Work",
+        "visible": "Visible",
+        "view": "View",
+        "monday": "Monday",
+        "sunday": "Sunday",
+        "syncOnOpen": "Sync when opening the panel",
+        "ensureDaemon": "Start the live-sync daemon if needed",
+        "ensureDaemonDesc": "Runs `systemctl --user enable --now calsync` when the panel opens and the daemon isn't running.",
+        "binPath": "calsync binary",
+        "binPathDesc": "Path or name of the calsync CLI (must be on PATH)."
+    }
+}
