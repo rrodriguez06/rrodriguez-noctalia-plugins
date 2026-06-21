@@ -35,6 +35,27 @@ Item {
     property string edLocation: ""
     property string edDesc: ""
     property string edSource: ""
+    // Recurring-event editing.
+    property bool edRecurring: false
+    property string edInstanceStart: ""
+    property string edScope: "this" // this | following | all
+
+    // Top-level tab (0 = calendar, 1 = board).
+    property int activeTab: 0
+
+    // Card editor state.
+    property bool cardEditing: false
+    property string cdId: ""
+    property string cdTitle: ""
+    property string cdNotes: ""
+    property string cdPriority: "normal"
+    property int cdProgress: 0
+    property string cdDue: ""
+    property string cdColumn: ""
+
+    // Add-column overlay state.
+    property bool columnEditing: false
+    property string cgName: ""
 
     onVisibleChanged: {
         if (main) main.setPanelOpen(visible)
@@ -77,6 +98,7 @@ Item {
         var cals = main ? main.calendars : []
         for (var i = 0; i < cals.length; i++) {
             var s = cals[i].source
+            if (s === "holidays") continue // read-only source: not a creation target
             if (s && !seen[s]) { seen[s] = true; out.push({ "key": s, "name": s }) }
         }
         if (out.length === 0) {
@@ -98,6 +120,9 @@ Item {
         root.edEndTime = "10:00"
         root.edLocation = ""
         root.edDesc = ""
+        root.edRecurring = false
+        root.edInstanceStart = ""
+        root.edScope = "this"
         var sm = root.sourceModel()
         root.edSource = sm.length ? sm[0].key : "perso"
         root.editing = true
@@ -114,6 +139,9 @@ Item {
         root.edLocation = ev.location
         root.edDesc = ev.description
         root.edSource = ev.source
+        root.edRecurring = ev.recurring === true
+        root.edInstanceStart = ev.instanceStart || ""
+        root.edScope = "this" // safest default for a recurring occurrence
         root.editing = true
     }
 
@@ -129,17 +157,143 @@ Item {
         if (root.edId === "") {
             main.addEvent(root.edSource, root.edSummary, start, end, root.edAllDay, root.edLocation, root.edDesc)
         } else {
-            main.editEvent(root.edId, {
+            var fields = {
                 "summary": root.edSummary, "start": start, "end": end,
                 "allDay": root.edAllDay, "location": root.edLocation, "desc": root.edDesc
-            })
+            }
+            if (root.edRecurring) {
+                fields.scope = root.edScope
+                fields.instance = root.edInstanceStart
+            }
+            main.editEvent(root.edId, fields)
         }
         root.editing = false
+    }
+
+    function scopeModel() {
+        return [{ "key": "this", "name": root.tr("editor.scopeThis", "This event") },
+                { "key": "following", "name": root.tr("editor.scopeFollowing", "This and following") },
+                { "key": "all", "name": root.tr("editor.scopeAll", "All events") }]
+    }
+
+    // ── Kanban helpers ───────────────────────────────────────────────────────
+    function boardColumns() { return (root.main && root.main.board && root.main.board.columns) ? root.main.board.columns : [] }
+
+    function cardsIn(colId) {
+        var cards = (root.main && root.main.board && root.main.board.cards) ? root.main.board.cards : []
+        return cards.filter(function (c) { return c.column === colId })
+                    .sort(function (a, b) { return (a.order || 0) - (b.order || 0) })
+    }
+
+    function priorityModel() {
+        return [{ "key": "low", "name": root.tr("priority.low", "Low") },
+                { "key": "normal", "name": root.tr("priority.normal", "Normal") },
+                { "key": "high", "name": root.tr("priority.high", "High") }]
+    }
+
+    function columnModel() {
+        return root.boardColumns().map(function (c) { return { "key": c.id, "name": c.name } })
+    }
+
+    function priorityColor(p) {
+        if (p === "high") return Color.mError
+        if (p === "low") return Color.mOnSurfaceVariant
+        return Color.mPrimary
+    }
+
+    function openNewCard(colId) {
+        root.cdId = ""
+        root.cdTitle = ""
+        root.cdNotes = ""
+        root.cdPriority = "normal"
+        root.cdProgress = 0
+        root.cdDue = ""
+        var cols = root.boardColumns()
+        root.cdColumn = colId || (cols.length ? cols[0].id : "")
+        root.cardEditing = true
+    }
+
+    function openCard(card) {
+        root.cdId = card.id
+        root.cdTitle = card.title
+        root.cdNotes = card.notes || ""
+        root.cdPriority = card.priority || "normal"
+        root.cdProgress = card.progress || 0
+        root.cdDue = card.due || ""
+        root.cdColumn = card.column
+        root.cardEditing = true
+    }
+
+    function saveCard() {
+        if (!root.main) return
+        if (root.cdId === "") {
+            root.main.addCard(root.cdTitle, { "column": root.cdColumn, "notes": root.cdNotes,
+                "priority": root.cdPriority, "progress": root.cdProgress, "due": root.cdDue })
+        } else {
+            root.main.updateCard(root.cdId, { "title": root.cdTitle, "notes": root.cdNotes,
+                "priority": root.cdPriority, "progress": root.cdProgress, "due": root.cdDue, "column": root.cdColumn })
+        }
+        root.cardEditing = false
+    }
+
+    function deleteCard() {
+        if (root.main && root.cdId !== "") root.main.rmCard(root.cdId)
+        root.cardEditing = false
     }
 
     function timeRange(ev) {
         if (ev.allDay) return root.tr("panel.allDay", "All day")
         return Qt.formatDateTime(ev.start, "hh:mm") + "–" + Qt.formatDateTime(ev.end, "hh:mm")
+    }
+
+    // ── Hour-grid geometry helpers ───────────────────────────────────────────
+    function hourFrac(d) { return d.getHours() + d.getMinutes() / 60 }
+
+    // packEvents lays overlapping timed events into side-by-side lanes. It groups
+    // events into clusters of transitively-overlapping items, assigns each the
+    // first free lane, and tags it with the cluster's lane count so the delegate
+    // can size/position columns. Returns [{ ev, lane, lanes }].
+    function packEvents(events) {
+        var evs = (events || []).slice().sort(function (a, b) {
+            var d = a.start.getTime() - b.start.getTime()
+            return d !== 0 ? d : (a.end.getTime() - b.end.getTime())
+        })
+        var out = []
+        var cluster = [] // [{ ev, lane }] of the current overlapping group
+        var clusterEnd = 0
+        function flush() {
+            var lanes = 0
+            for (var k = 0; k < cluster.length; k++) lanes = Math.max(lanes, cluster[k].lane + 1)
+            for (var m = 0; m < cluster.length; m++)
+                out.push({ "ev": cluster[m].ev, "lane": cluster[m].lane, "lanes": lanes })
+            cluster = []
+            clusterEnd = 0
+        }
+        for (var i = 0; i < evs.length; i++) {
+            var e = evs[i]
+            var s = e.start.getTime(), en = e.end.getTime()
+            if (cluster.length && s >= clusterEnd) flush()
+            var used = {}
+            for (var j = 0; j < cluster.length; j++) {
+                var c = cluster[j]
+                if (c.ev.end.getTime() > s && c.ev.start.getTime() < en) used[c.lane] = true
+            }
+            var lane = 0
+            while (used[lane]) lane++
+            cluster.push({ "ev": e, "lane": lane })
+            clusterEnd = Math.max(clusterEnd, en)
+        }
+        if (cluster.length) flush()
+        return out
+    }
+
+    // scrollToNow positions a timeline Flickable so the current hour sits in the
+    // upper third of the viewport (called once when a week/day view is built).
+    function scrollToNow(flick, startH) {
+        if (!flick) return
+        var y = (root.hourFrac(new Date()) - startH) * root.hourPx + root.topPad - flick.height * 0.3
+        var maxY = Math.max(0, flick.contentHeight - flick.height)
+        flick.contentY = Math.max(0, Math.min(y, maxY))
     }
 
     Item {
@@ -150,81 +304,124 @@ Item {
             anchors.fill: parent
             anchors.margins: Style.marginL
             spacing: Style.marginM
-            opacity: root.editing ? 0.15 : 1.0
+            opacity: (root.editing || root.cardEditing || root.columnEditing) ? 0.15 : 1.0
 
-            // ── Header ───────────────────────────────────────────────────────
-            RowLayout {
+            // ── Top-level tabs (Calendar / Board) ─────────────────────────────
+            NTabBar {
+                id: topTabs
                 Layout.fillWidth: true
-                spacing: Style.marginXS
-
-                NIconButton { icon: "chevron-left"; onClicked: if (root.main) root.main.goPrev() }
-                NIconButton { icon: "chevron-right"; onClicked: if (root.main) root.main.goNext() }
-                NButton {
-                    text: root.tr("panel.today", "Today")
-                    onClicked: if (root.main) root.main.goToday()
-                }
-                NText {
-                    Layout.leftMargin: Style.marginS
-                    text: root.periodLabel()
-                    pointSize: Style.fontSizeL
-                    color: Color.mOnSurface
-                }
-
-                Item { Layout.fillWidth: true }
-
-                NButton {
-                    text: root.tr("panel.month", "Month")
-                    enabled: !root.main || root.main.viewMode !== "month"
-                    onClicked: if (root.main) root.main.setView("month")
-                }
-                NButton {
-                    text: root.tr("panel.week", "Week")
-                    enabled: !root.main || root.main.viewMode !== "week"
-                    onClicked: if (root.main) root.main.setView("week")
-                }
-                NButton {
-                    text: root.tr("panel.day", "Day")
-                    enabled: !root.main || root.main.viewMode !== "day"
-                    onClicked: if (root.main) root.main.setView("day")
-                }
-
-                NIconButton {
-                    Layout.leftMargin: Style.marginS
-                    icon: "refresh"
-                    tooltipText: root.tr("panel.refresh", "Refresh")
-                    onClicked: if (root.main) root.main.syncNow()
-                }
-                NIconButton {
-                    icon: "plus"
-                    tooltipText: root.tr("panel.add", "New event")
-                    onClicked: root.openNew(null)
+                distributeEvenly: true
+                // NTabBar owns currentIndex (updated on click); mirror it to activeTab
+                // which drives the StackLayout. (Don't bind currentIndex back, to avoid
+                // fighting the bar's internal click handling — matches noctalia-deck.)
+                onCurrentIndexChanged: root.activeTab = currentIndex
+                Repeater {
+                    model: [{ "icon": "calendar", "key": "calendar" },
+                            { "icon": "layout-dashboard", "key": "board" }]
+                    NTabButton {
+                        icon: modelData.icon
+                        text: root.tr("tabs." + modelData.key, modelData.key)
+                        pointSize: Style.fontSizeM
+                        tabIndex: index
+                        checked: topTabs.currentIndex === index
+                    }
                 }
             }
 
-            // Auth hint when calsync is not authenticated.
-            NText {
-                Layout.fillWidth: true
-                visible: root.main && root.main.authError
-                text: root.tr("panel.authHint", "Not signed in — run `calsync auth` in a terminal.")
-                color: Color.mError
-                pointSize: Style.fontSizeS
-            }
-
-            // ── Body ─────────────────────────────────────────────────────────
-            Loader {
+            StackLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                sourceComponent: !root.main ? null
-                                 : (root.main.viewMode === "week" ? weekComp
-                                    : (root.main.viewMode === "day" ? dayComp : monthComp))
+                currentIndex: root.activeTab
+
+                // ── Calendar tab ──────────────────────────────────────────────
+                ColumnLayout {
+                    spacing: Style.marginM
+
+                    // Header (period nav + view switch + actions)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginXS
+
+                        NIconButton { icon: "chevron-left"; onClicked: if (root.main) root.main.goPrev() }
+                        NIconButton { icon: "chevron-right"; onClicked: if (root.main) root.main.goNext() }
+                        NButton {
+                            text: root.tr("panel.today", "Today")
+                            onClicked: if (root.main) root.main.goToday()
+                        }
+                        NText {
+                            Layout.leftMargin: Style.marginS
+                            text: root.periodLabel()
+                            pointSize: Style.fontSizeL
+                            color: Color.mOnSurface
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        NButton {
+                            text: root.tr("panel.month", "Month")
+                            enabled: !root.main || root.main.viewMode !== "month"
+                            onClicked: if (root.main) root.main.setView("month")
+                        }
+                        NButton {
+                            text: root.tr("panel.week", "Week")
+                            enabled: !root.main || root.main.viewMode !== "week"
+                            onClicked: if (root.main) root.main.setView("week")
+                        }
+                        NButton {
+                            text: root.tr("panel.day", "Day")
+                            enabled: !root.main || root.main.viewMode !== "day"
+                            onClicked: if (root.main) root.main.setView("day")
+                        }
+
+                        NIconButton {
+                            Layout.leftMargin: Style.marginS
+                            icon: "refresh"
+                            tooltipText: root.tr("panel.refresh", "Refresh")
+                            onClicked: if (root.main) root.main.syncNow()
+                        }
+                        NIconButton {
+                            icon: "plus"
+                            tooltipText: root.tr("panel.add", "New event")
+                            onClicked: root.openNew(null)
+                        }
+                    }
+
+                    // Auth hint when calsync is not authenticated.
+                    NText {
+                        Layout.fillWidth: true
+                        visible: root.main && root.main.authError
+                        text: root.tr("panel.authHint", "Not signed in — run `calsync auth` in a terminal.")
+                        color: Color.mError
+                        pointSize: Style.fontSizeS
+                    }
+
+                    // Body
+                    Loader {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        sourceComponent: !root.main ? null
+                                         : (root.main.viewMode === "week" ? weekComp
+                                            : (root.main.viewMode === "day" ? dayComp : monthComp))
+                    }
+                }
+
+                // ── Board tab ─────────────────────────────────────────────────
+                Loader {
+                    sourceComponent: boardComp
+                }
             }
         }
 
-        // ── Editor overlay ───────────────────────────────────────────────────
+        // ── Editor overlays ───────────────────────────────────────────────────
         Loader {
             anchors.fill: parent
             active: root.editing
             sourceComponent: editorComp
+        }
+        Loader {
+            anchors.fill: parent
+            active: root.cardEditing
+            sourceComponent: cardEditorComp
         }
     }
 
@@ -258,7 +455,28 @@ Item {
         property int startH: 7
         property int endH: 22
         property bool showNow: false
+        property bool showLeftDivider: false
+        // Overlapping events packed into side-by-side lanes.
+        property var packed: root.packEvents(col.events)
+        // Live fraction-of-day for the "now" line; ticked every minute.
+        property real nowFrac: root.hourFrac(new Date())
         implicitHeight: (endH - startH) * root.hourPx + root.topPad * 2
+
+        Timer {
+            interval: 60000
+            repeat: true
+            running: col.showNow
+            onTriggered: col.nowFrac = root.hourFrac(new Date())
+        }
+
+        // left divider (week view: separate day columns)
+        Rectangle {
+            visible: col.showLeftDivider
+            x: 0
+            width: 1
+            height: col.height
+            color: Color.mSurfaceVariant
+        }
 
         // hour grid lines
         Repeater {
@@ -272,21 +490,23 @@ Item {
             }
         }
 
-        // timed events, absolutely positioned by time
+        // timed events, absolutely positioned by time, packed into lanes
         Repeater {
-            model: col.events
+            model: col.packed
             delegate: Rectangle {
                 id: evRect
                 required property var modelData
-                property color base: modelData.color
+                property var ev: modelData.ev
+                property color base: ev.color
                 property real dayStartMs: (new Date(col.day.getFullYear(), col.day.getMonth(), col.day.getDate())).getTime()
-                property real sH: (modelData.start.getTime() - dayStartMs) / 3600000
-                property real eH: (modelData.end.getTime() - dayStartMs) / 3600000
+                property real sH: (ev.start.getTime() - dayStartMs) / 3600000
+                property real eH: (ev.end.getTime() - dayStartMs) / 3600000
                 property real topH: Math.max(sH, col.startH)
                 property real botH: Math.min(Math.max(eH, sH + 0.25), col.endH)
+                property real laneW: (col.width - 4) / modelData.lanes
                 visible: eH > col.startH && sH < col.endH
-                x: 2
-                width: col.width - 4
+                x: 2 + modelData.lane * laneW
+                width: laneW - 1
                 y: (topH - col.startH) * root.hourPx + root.topPad
                 height: Math.max((botH - topH) * root.hourPx, 14)
                 radius: Style.radiusXS
@@ -301,33 +521,30 @@ Item {
                     spacing: 0
                     NText {
                         Layout.fillWidth: true
-                        text: modelData.summary
+                        text: evRect.ev.summary
                         pointSize: Style.fontSizeXS
                         color: Color.mOnSurface
                         elide: Text.ElideRight
                     }
                     NText {
                         visible: evRect.height > 28
-                        text: Qt.formatDateTime(modelData.start, "hh:mm")
+                        text: Qt.formatDateTime(evRect.ev.start, "hh:mm")
                         pointSize: Style.fontSizeXS
                         color: Color.mOnSurfaceVariant
                     }
                 }
-                MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
+                MouseArea { anchors.fill: parent; onClicked: root.openEdit(evRect.ev) }
             }
         }
 
-        // current-time indicator (only on today)
+        // current-time indicator (only on today), updated live by the Timer
         Rectangle {
-            property real nowH: {
-                var n = new Date()
-                return n.getHours() + n.getMinutes() / 60
-            }
-            visible: col.showNow && nowH >= col.startH && nowH <= col.endH
-            y: (nowH - col.startH) * root.hourPx + root.topPad
+            visible: col.showNow && col.nowFrac >= col.startH && col.nowFrac <= col.endH
+            y: (col.nowFrac - col.startH) * root.hourPx + root.topPad
             width: col.width
             height: 2
             color: Color.mError
+            Behavior on y { NumberAnimation { duration: 300 } }
         }
     }
 
@@ -533,6 +750,7 @@ Item {
                 clip: true
                 contentWidth: width
                 contentHeight: wrow.implicitHeight
+                Component.onCompleted: Qt.callLater(function () { root.scrollToNow(wflick, weekWrap.sH) })
                 RowLayout {
                     id: wrow
                     width: wflick.width
@@ -549,6 +767,7 @@ Item {
                             startH: weekWrap.sH
                             endH: weekWrap.eH
                             showNow: root.main && root.main.sameDay(day, new Date())
+                            showLeftDivider: index > 0
                         }
                     }
                 }
@@ -610,6 +829,7 @@ Item {
                 clip: true
                 contentWidth: width
                 contentHeight: drow.implicitHeight
+                Component.onCompleted: Qt.callLater(function () { root.scrollToNow(dflick, dayWrap.sH) })
                 RowLayout {
                     id: drow
                     width: dflick.width
@@ -653,6 +873,24 @@ Item {
                         text: root.edId === "" ? root.tr("editor.new", "New event") : root.tr("editor.edit", "Edit event")
                         pointSize: Style.fontSizeL
                         color: Color.mOnSurface
+                    }
+
+                    // Recurring-event scope (this / following / all).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: root.edRecurring && root.edId !== ""
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("editor.recurring", "Recurring event")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        NComboBox {
+                            Layout.fillWidth: true
+                            model: root.scopeModel()
+                            currentKey: root.edScope
+                            onSelected: (key) => root.edScope = key
+                        }
                     }
 
                     NTextInput {
@@ -733,7 +971,15 @@ Item {
                             visible: root.edId !== ""
                             text: root.tr("editor.delete", "Delete")
                             icon: "trash"
-                            onClicked: { if (root.main) root.main.deleteEvent(root.edId); root.editing = false }
+                            onClicked: {
+                                if (root.main) {
+                                    if (root.edRecurring)
+                                        root.main.deleteEvent(root.edId, root.edScope, root.edInstanceStart)
+                                    else
+                                        root.main.deleteEvent(root.edId)
+                                }
+                                root.editing = false
+                            }
                         }
                         Item { Layout.fillWidth: true }
                         NButton {
@@ -749,5 +995,502 @@ Item {
                 }
             }
         }
+    }
+
+    // ====================================================================== //
+    //  Kanban board view (columns + cards + drag-drop)
+    // ====================================================================== //
+    Component {
+        id: boardComp
+        Item {
+            id: boardRoot
+
+            // ── Drag state ────────────────────────────────────────────────────
+            property string dragId: ""
+            property var dragCard: null
+            property bool dragging: false
+            property real dragX: 0
+            property real dragY: 0
+            property real grabDX: 0
+            property real grabDY: 0
+            property real dragW: 200
+            property int hoverCol: -1
+
+            function startDrag(card, item, gx, gy) {
+                var tl = item.mapToItem(boardRoot, 0, 0)
+                boardRoot.dragW = item.width
+                boardRoot.grabDX = gx - tl.x
+                boardRoot.grabDY = gy - tl.y
+                boardRoot.dragCard = card
+                boardRoot.dragId = card.id
+                boardRoot.dragging = true
+                boardRoot.updateDrag(gx, gy)
+            }
+            function updateDrag(gx, gy) {
+                boardRoot.dragX = gx - boardRoot.grabDX
+                boardRoot.dragY = gy - boardRoot.grabDY
+                boardRoot.hoverCol = boardRoot.columnAt(gx, gy)
+            }
+            function endDrag() {
+                var ci = boardRoot.hoverCol
+                var cols = root.boardColumns()
+                if (ci >= 0 && ci < cols.length && root.main) {
+                    var order = boardRoot.dropOrder(ci, boardRoot.dragY + boardRoot.grabDY)
+                    root.main.moveCard(boardRoot.dragId, cols[ci].id, order)
+                }
+                boardRoot.dragging = false
+                boardRoot.dragId = ""
+                boardRoot.dragCard = null
+                boardRoot.hoverCol = -1
+            }
+            function columnAt(gx, gy) {
+                for (var i = 0; i < colsRepeater.count; i++) {
+                    var it = colsRepeater.itemAt(i)
+                    if (!it) continue
+                    var tl = it.mapToItem(boardRoot, 0, 0)
+                    if (gx >= tl.x && gx <= tl.x + it.width && gy >= tl.y && gy <= tl.y + it.height)
+                        return i
+                }
+                return -1
+            }
+            function dropOrder(colIndex, gy) {
+                var it = colsRepeater.itemAt(colIndex)
+                if (!it || !it.cardListRepeater) return -1
+                var rep = it.cardListRepeater
+                var idx = 0
+                for (var i = 0; i < rep.count; i++) {
+                    var cardItem = rep.itemAt(i)
+                    if (!cardItem || !cardItem.cardData) continue
+                    if (cardItem.cardData.id === boardRoot.dragId) continue
+                    var c = cardItem.mapToItem(boardRoot, 0, cardItem.height / 2)
+                    if (gy < c.y) return idx
+                    idx++
+                }
+                return idx
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Style.marginS
+
+                // Board header: add-column + error
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.marginS
+                    NText {
+                        visible: root.main && root.main.boardError !== ""
+                        Layout.fillWidth: true
+                        text: root.main ? root.main.boardError : ""
+                        color: Color.mError
+                        pointSize: Style.fontSizeXS
+                        elide: Text.ElideRight
+                    }
+                    Item { Layout.fillWidth: true; visible: !(root.main && root.main.boardError !== "") }
+                    NButton {
+                        visible: root.main && root.main.tasksEnabled()
+                        text: root.tr("board.syncTasks", "Sync Tasks")
+                        icon: "refresh-dot"
+                        onClicked: if (root.main) root.main.syncTasks()
+                    }
+                    NButton {
+                        text: root.tr("board.addColumn", "Add column")
+                        icon: "plus"
+                        onClicked: { root.cgName = ""; root.columnEditing = true }
+                    }
+                }
+
+                // Empty state
+                NText {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: root.boardColumns().length === 0
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    text: root.tr("board.empty", "No columns yet.")
+                    color: Color.mOnSurfaceVariant
+                }
+
+                // Columns
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: root.boardColumns().length > 0
+                    spacing: Style.marginS
+
+                    Repeater {
+                        id: colsRepeater
+                        model: root.boardColumns()
+                        delegate: Rectangle {
+                            id: colItem
+                            required property int index
+                            required property var modelData
+                            property alias cardListRepeater: cardsRep
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: Style.radiusM
+                            color: Color.mSurface
+                            border.width: (boardRoot.dragging && boardRoot.hoverCol === index) ? 2 : 1
+                            border.color: (boardRoot.dragging && boardRoot.hoverCol === index) ? Color.mPrimary : Color.mOutline
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: Style.marginS
+                                spacing: Style.marginXS
+
+                                // Column header
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Style.marginXS
+                                    NText {
+                                        text: colItem.modelData.name
+                                        pointSize: Style.fontSizeM
+                                        color: Color.mOnSurface
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                    NText {
+                                        text: root.cardsIn(colItem.modelData.id).length
+                                        pointSize: Style.fontSizeXS
+                                        color: Color.mOnSurfaceVariant
+                                    }
+                                    NIconButton {
+                                        baseSize: Math.round(Style.baseWidgetSize * 0.7)
+                                        icon: "plus"
+                                        tooltipText: root.tr("board.addCard", "Add card")
+                                        onClicked: root.openNewCard(colItem.modelData.id)
+                                    }
+                                    NIconButton {
+                                        baseSize: Math.round(Style.baseWidgetSize * 0.7)
+                                        visible: root.cardsIn(colItem.modelData.id).length === 0 && root.boardColumns().length > 1
+                                        icon: "trash"
+                                        tooltipText: root.tr("board.rmColumn", "Remove empty column")
+                                        onClicked: if (root.main) root.main.rmColumn(colItem.modelData.id)
+                                    }
+                                }
+
+                                NDivider { Layout.fillWidth: true }
+
+                                // Card list
+                                Flickable {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
+                                    contentWidth: width
+                                    contentHeight: cardsCol.implicitHeight
+                                    ColumnLayout {
+                                        id: cardsCol
+                                        width: parent.width
+                                        spacing: Style.marginXS
+
+                                        Repeater {
+                                            id: cardsRep
+                                            model: root.cardsIn(colItem.modelData.id)
+                                            delegate: Rectangle {
+                                                id: cardItem
+                                                required property var modelData
+                                                property var cardData: modelData
+                                                Layout.fillWidth: true
+                                                implicitHeight: cardCol.implicitHeight + Style.marginS * 2
+                                                radius: Style.radiusS
+                                                color: Color.mSurfaceVariant
+                                                opacity: (boardRoot.dragId === modelData.id) ? 0.3 : 1.0
+
+                                                // priority accent
+                                                Rectangle {
+                                                    width: 3
+                                                    height: parent.height
+                                                    radius: 1
+                                                    color: root.priorityColor(cardItem.modelData.priority)
+                                                }
+
+                                                ColumnLayout {
+                                                    id: cardCol
+                                                    anchors.fill: parent
+                                                    anchors.margins: Style.marginS
+                                                    anchors.leftMargin: Style.marginS + 4
+                                                    spacing: 3
+
+                                                    NText {
+                                                        Layout.fillWidth: true
+                                                        text: cardItem.modelData.title
+                                                        pointSize: Style.fontSizeS
+                                                        color: Color.mOnSurface
+                                                        elide: Text.ElideRight
+                                                        wrapMode: Text.WordWrap
+                                                        maximumLineCount: 2
+                                                    }
+
+                                                    // progress bar
+                                                    Rectangle {
+                                                        Layout.fillWidth: true
+                                                        visible: cardItem.modelData.progress > 0
+                                                        height: 4
+                                                        radius: 2
+                                                        color: Color.mSurface
+                                                        Rectangle {
+                                                            width: parent.width * (cardItem.modelData.progress / 100)
+                                                            height: parent.height
+                                                            radius: 2
+                                                            color: root.priorityColor(cardItem.modelData.priority)
+                                                        }
+                                                    }
+
+                                                    // due + sync indicator
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: Style.marginXS
+                                                        visible: !!cardItem.modelData.due || !!cardItem.modelData.googleTaskId
+                                                        NText {
+                                                            visible: !!cardItem.modelData.due
+                                                            text: "⏱ " + (cardItem.modelData.due || "")
+                                                            pointSize: Style.fontSizeXS
+                                                            color: Color.mOnSurfaceVariant
+                                                        }
+                                                        Item { Layout.fillWidth: true }
+                                                        NText {
+                                                            visible: !!cardItem.modelData.googleTaskId
+                                                            text: root.tr("board.synced", "✓ Tasks")
+                                                            pointSize: Style.fontSizeXS
+                                                            color: Color.mPrimary
+                                                        }
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    preventStealing: true
+                                                    property real pgx: 0
+                                                    property real pgy: 0
+                                                    property bool armed: false
+                                                    onPressed: mouse => {
+                                                        var p = mapToItem(boardRoot, mouse.x, mouse.y)
+                                                        pgx = p.x; pgy = p.y; armed = true
+                                                    }
+                                                    onPositionChanged: mouse => {
+                                                        var p = mapToItem(boardRoot, mouse.x, mouse.y)
+                                                        if (!boardRoot.dragging) {
+                                                            if (armed && (Math.abs(p.x - pgx) + Math.abs(p.y - pgy)) > 8)
+                                                                boardRoot.startDrag(cardItem.cardData, cardItem, p.x, p.y)
+                                                        } else {
+                                                            boardRoot.updateDrag(p.x, p.y)
+                                                        }
+                                                    }
+                                                    onReleased: {
+                                                        if (boardRoot.dragging) boardRoot.endDrag()
+                                                        else if (armed) root.openCard(cardItem.cardData)
+                                                        armed = false
+                                                    }
+                                                    onCanceled: {
+                                                        if (boardRoot.dragging) boardRoot.endDrag()
+                                                        armed = false
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Floating drag ghost
+            Rectangle {
+                visible: boardRoot.dragging
+                x: boardRoot.dragX
+                y: boardRoot.dragY
+                width: boardRoot.dragW
+                height: ghostText.implicitHeight + Style.marginM
+                z: 1000
+                radius: Style.radiusS
+                color: Color.mPrimary
+                opacity: 0.92
+                NText {
+                    id: ghostText
+                    anchors.fill: parent
+                    anchors.margins: Style.marginS
+                    text: boardRoot.dragCard ? boardRoot.dragCard.title : ""
+                    color: Color.mOnPrimary
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+    }
+
+    // ── Card editor overlay ───────────────────────────────────────────────────
+    Component {
+        id: cardEditorComp
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {} // swallow clicks behind the dialog
+
+            NBox {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - Style.marginL * 2, 460 * Style.uiScaleRatio)
+                implicitHeight: cform.implicitHeight + Style.marginL * 2
+
+                ColumnLayout {
+                    id: cform
+                    anchors.fill: parent
+                    anchors.margins: Style.marginL
+                    spacing: Style.marginS
+
+                    NText {
+                        text: root.cdId === "" ? root.tr("board.newCard", "New card") : root.tr("board.editCard", "Edit card")
+                        pointSize: Style.fontSizeL
+                        color: Color.mOnSurface
+                    }
+
+                    NTextInput {
+                        Layout.fillWidth: true
+                        text: root.cdTitle
+                        placeholderText: root.tr("board.title", "Title")
+                        onEditingFinished: root.cdTitle = text
+                    }
+                    NTextInput {
+                        Layout.fillWidth: true
+                        text: root.cdNotes
+                        placeholderText: root.tr("board.notes", "Notes")
+                        onEditingFinished: root.cdNotes = text
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginS
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginXXS
+                            NText { text: root.tr("board.column", "Column"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+                            NComboBox {
+                                Layout.fillWidth: true
+                                model: root.columnModel()
+                                currentKey: root.cdColumn
+                                onSelected: key => root.cdColumn = key
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginXXS
+                            NText { text: root.tr("board.priority", "Priority"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+                            NComboBox {
+                                Layout.fillWidth: true
+                                model: root.priorityModel()
+                                currentKey: root.cdPriority
+                                onSelected: key => root.cdPriority = key
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("board.progress", "Progress") + ": " + root.cdProgress + "%"
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        NSlider {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; stepSize: 5
+                            value: root.cdProgress
+                            onValueChanged: root.cdProgress = value
+                        }
+                    }
+
+                    NTextInput {
+                        Layout.fillWidth: true
+                        text: root.cdDue
+                        placeholderText: root.tr("board.due", "Due (YYYY-MM-DD)")
+                        onEditingFinished: root.cdDue = text
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Style.marginXS
+                        spacing: Style.marginS
+
+                        NButton {
+                            visible: root.cdId !== ""
+                            text: root.tr("editor.delete", "Delete")
+                            icon: "trash"
+                            onClicked: root.deleteCard()
+                        }
+                        Item { Layout.fillWidth: true }
+                        NButton {
+                            text: root.tr("editor.cancel", "Cancel")
+                            onClicked: root.cardEditing = false
+                        }
+                        NButton {
+                            text: root.tr("editor.save", "Save")
+                            icon: "check"
+                            enabled: root.cdTitle !== ""
+                            onClicked: root.saveCard()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Add-column overlay ────────────────────────────────────────────────────
+    Component {
+        id: columnEditorComp
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {}
+
+            NBox {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - Style.marginL * 2, 360 * Style.uiScaleRatio)
+                implicitHeight: gform.implicitHeight + Style.marginL * 2
+
+                ColumnLayout {
+                    id: gform
+                    anchors.fill: parent
+                    anchors.margins: Style.marginL
+                    spacing: Style.marginS
+
+                    NText {
+                        text: root.tr("board.addColumn", "Add column")
+                        pointSize: Style.fontSizeL
+                        color: Color.mOnSurface
+                    }
+                    NTextInput {
+                        Layout.fillWidth: true
+                        text: root.cgName
+                        placeholderText: root.tr("board.columnName", "Column name")
+                        onEditingFinished: root.cgName = text
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Style.marginXS
+                        spacing: Style.marginS
+                        Item { Layout.fillWidth: true }
+                        NButton {
+                            text: root.tr("editor.cancel", "Cancel")
+                            onClicked: root.columnEditing = false
+                        }
+                        NButton {
+                            text: root.tr("editor.save", "Save")
+                            icon: "check"
+                            enabled: root.cgName !== ""
+                            onClicked: {
+                                if (root.main) root.main.addColumn(root.cgName)
+                                root.columnEditing = false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add-column overlay loader.
+    Loader {
+        anchors.fill: parent
+        active: root.columnEditing
+        sourceComponent: columnEditorComp
     }
 }

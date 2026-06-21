@@ -27,7 +27,37 @@
         "desc": "Description",
         "delete": "Delete",
         "cancel": "Cancel",
-        "save": "Save"
+        "save": "Save",
+        "recurring": "Recurring event",
+        "scopeThis": "This event",
+        "scopeFollowing": "This and following",
+        "scopeAll": "All events"
+    },
+    "tabs": {
+        "calendar": "Calendar",
+        "board": "Board"
+    },
+    "board": {
+        "addColumn": "Add column",
+        "addCard": "Add card",
+        "rmColumn": "Remove empty column",
+        "empty": "No columns yet.",
+        "newCard": "New card",
+        "editCard": "Edit card",
+        "title": "Title",
+        "notes": "Notes",
+        "column": "Column",
+        "priority": "Priority",
+        "progress": "Progress",
+        "due": "Due (YYYY-MM-DD)",
+        "columnName": "Column name",
+        "synced": "✓ Tasks",
+        "syncTasks": "Sync Tasks"
+    },
+    "priority": {
+        "low": "Low",
+        "normal": "Normal",
+        "high": "High"
     },
     "launcher": {
         "openDesc": "Open the calendar",
@@ -50,6 +80,8 @@
         "ensureDaemon": "Start the live-sync daemon if needed",
         "ensureDaemonDesc": "Runs `systemctl --user enable --now calsync` when the panel opens and the daemon isn't running.",
         "binPath": "calsync binary",
-        "binPathDesc": "Path or name of the calsync CLI (must be on PATH)."
+        "binPathDesc": "Path or name of the calsync CLI (must be on PATH).",
+        "enableTasks": "Link the board to Google Tasks",
+        "enableTasksDesc": "Shows a “Sync Tasks” button on the board. Requires re-running `calsync auth` to grant the Tasks scope."
     }
 }

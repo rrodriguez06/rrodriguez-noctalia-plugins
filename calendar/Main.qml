@@ -28,6 +28,10 @@ Item {
     property int todayCount: 0
     property string nextLabel: ""
 
+    // Local kanban board ({ columns: [...], cards: [...] }).
+    property var board: ({ "columns": [], "cards": [] })
+    property string boardError: ""
+
     function settings() { return root.pluginApi?.pluginSettings ?? null }
     function bin() { return root.settings()?.binPath || "calsync" }
     function weekStartsOn() { return root.settings()?.weekStartsOn ?? 1 }
@@ -167,6 +171,8 @@ Item {
                 "description": e.description || "",
                 "allDay": e.allDay === true,
                 "recurring": e.recurring === true,
+                "recurringEventId": e.recurringEventId || "",
+                "instanceStart": e.instanceStart || "",
                 "start": e.allDay ? root._parseDate(e.start) : new Date(e.start),
                 "end": e.allDay ? root._parseDate(e.end) : new Date(e.end)
             })
@@ -239,6 +245,8 @@ Item {
         root._runMutate(cmd)
     }
 
+    // fields may carry scope ("this"|"following"|"all") and instance (the target
+    // occurrence's original start) for recurring-event edits.
     function editEvent(id, fields) {
         var cmd = [root.bin(), "event", "edit", id]
         if (fields.summary !== undefined) cmd.push("--summary", fields.summary)
@@ -247,11 +255,17 @@ Item {
         if (fields.allDay) cmd.push("--all-day")
         if (fields.location !== undefined) cmd.push("--location", fields.location)
         if (fields.desc !== undefined) cmd.push("--desc", fields.desc)
+        if (fields.scope) cmd.push("--scope", fields.scope)
+        if (fields.instance) cmd.push("--instance", fields.instance)
         root._runMutate(cmd)
     }
 
-    function deleteEvent(id) {
-        root._runMutate([root.bin(), "event", "rm", id])
+    // scope/instance apply to recurring events (omit for single events).
+    function deleteEvent(id, scope, instance) {
+        var cmd = [root.bin(), "event", "rm", id]
+        if (scope) cmd.push("--scope", scope)
+        if (instance) cmd.push("--instance", instance)
+        root._runMutate(cmd)
     }
 
     function _runMutate(cmd) {
@@ -259,6 +273,88 @@ Item {
         mutateProc.command = cmd
         mutateProc.running = true
     }
+
+    // ── Kanban board (local-first) ───────────────────────────────────────────
+    Process {
+        id: boardProc
+        stdout: StdioCollector { onStreamFinished: root._onBoardLoaded(this.text || "") }
+        onExited: code => { if (code !== 0) Logger.w("Calendar", "board get exited " + code) }
+    }
+    Process {
+        id: boardMutateProc
+        stdout: StdioCollector { onStreamFinished: root._onBoardMutated(this.text || "") }
+        onExited: code => { if (code !== 0) Logger.w("Calendar", "board mutate exited " + code) }
+    }
+
+    function reloadBoard() {
+        boardProc.running = false
+        boardProc.command = [root.bin(), "board", "get"]
+        boardProc.running = true
+    }
+
+    function _onBoardLoaded(text) {
+        var parsed
+        try { parsed = JSON.parse(text) } catch (e) { Logger.w("Calendar", "board parse error: " + e); return }
+        if (parsed && parsed.ok === false) {
+            root.boardError = parsed.error ? parsed.error.message : "error"
+            return
+        }
+        root.boardError = ""
+        root.board = (parsed && parsed.board) ? parsed.board : { "columns": [], "cards": [] }
+    }
+
+    function _onBoardMutated(text) {
+        var parsed
+        try { parsed = JSON.parse(text) } catch (e) { parsed = null }
+        if (parsed && parsed.ok === false)
+            root.boardError = parsed.error ? parsed.error.message : "error"
+        root.reloadBoard()
+    }
+
+    function _runBoard(cmd) {
+        boardMutateProc.running = false
+        boardMutateProc.command = cmd
+        boardMutateProc.running = true
+    }
+
+    // fields: {column, notes, priority, progress, due}
+    function addCard(title, fields) {
+        var cmd = [root.bin(), "board", "add-card", "--title", title]
+        if (fields) {
+            if (fields.column) cmd.push("--column", fields.column)
+            if (fields.notes !== undefined) cmd.push("--notes", fields.notes)
+            if (fields.priority) cmd.push("--priority", fields.priority)
+            if (fields.progress !== undefined) cmd.push("--progress", String(fields.progress))
+            if (fields.due) cmd.push("--due", fields.due)
+        }
+        root._runBoard(cmd)
+    }
+
+    // fields: {title, notes, priority, progress, due, column}
+    function updateCard(id, fields) {
+        var cmd = [root.bin(), "board", "update-card", id]
+        if (fields.title !== undefined) cmd.push("--title", fields.title)
+        if (fields.notes !== undefined) cmd.push("--notes", fields.notes)
+        if (fields.priority !== undefined) cmd.push("--priority", fields.priority)
+        if (fields.progress !== undefined) cmd.push("--progress", String(fields.progress))
+        if (fields.due !== undefined) cmd.push("--due", fields.due)
+        if (fields.column !== undefined) cmd.push("--column", fields.column)
+        root._runBoard(cmd)
+    }
+
+    function moveCard(id, column, order) {
+        var cmd = [root.bin(), "board", "move-card", id, "--column", column]
+        if (order !== undefined && order !== null) cmd.push("--order", String(order))
+        root._runBoard(cmd)
+    }
+
+    function rmCard(id) { root._runBoard([root.bin(), "board", "rm-card", id]) }
+    function addColumn(name) { root._runBoard([root.bin(), "board", "add-column", "--name", name]) }
+    function rmColumn(id) { root._runBoard([root.bin(), "board", "rm-column", id]) }
+
+    // Optional Google Tasks link (off unless enabled in settings; needs re-consent).
+    function tasksEnabled() { return root.settings()?.enableTasks === true }
+    function syncTasks() { root._runBoard([root.bin(), "board", "sync-tasks"]) }
 
     // Force a sync then reload (manual refresh button).
     Process {
@@ -332,6 +428,7 @@ Item {
         if (open) {
             root._loadCalendarsFromSettings()
             root.reloadWindow()
+            root.reloadBoard()
             if (root.settings()?.syncOnOpen ?? true) root.syncNow()
             root.startWatch()
         } else {
