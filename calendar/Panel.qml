@@ -18,6 +18,10 @@ Item {
     property real contentPreferredHeight: 680 * Style.uiScaleRatio
     anchors.fill: parent
 
+    // Timeline geometry (week/day hour grids).
+    readonly property real hourPx: 44 * Style.uiScaleRatio
+    readonly property real gutterW: 46 * Style.uiScaleRatio
+
     // Editor state.
     property bool editing: false
     property string edId: ""
@@ -224,6 +228,109 @@ Item {
     }
 
     // ====================================================================== //
+    //  Reusable timeline pieces (hour gutter + a day's hour column)
+    // ====================================================================== //
+    component HourGutter: Item {
+        id: gut
+        property int startH: 7
+        property int endH: 22
+        implicitWidth: root.gutterW
+        implicitHeight: (endH - startH) * root.hourPx
+        Repeater {
+            model: (gut.endH - gut.startH + 1)
+            delegate: NText {
+                required property int index
+                width: gut.width - 4
+                y: index * root.hourPx - (height / 2)
+                horizontalAlignment: Text.AlignRight
+                text: (gut.startH + index < 10 ? "0" : "") + (gut.startH + index) + ":00"
+                pointSize: Style.fontSizeXS
+                color: Color.mOnSurfaceVariant
+            }
+        }
+    }
+
+    component HourColumn: Item {
+        id: col
+        property var day
+        property var events: []
+        property int startH: 7
+        property int endH: 22
+        property bool showNow: false
+        implicitHeight: (endH - startH) * root.hourPx
+
+        // hour grid lines
+        Repeater {
+            model: (col.endH - col.startH + 1)
+            delegate: Rectangle {
+                required property int index
+                y: index * root.hourPx
+                width: col.width
+                height: 1
+                color: Color.mSurfaceVariant
+            }
+        }
+
+        // timed events, absolutely positioned by time
+        Repeater {
+            model: col.events
+            delegate: Rectangle {
+                id: evRect
+                required property var modelData
+                property color base: modelData.color
+                property real dayStartMs: (new Date(col.day.getFullYear(), col.day.getMonth(), col.day.getDate())).getTime()
+                property real sH: (modelData.start.getTime() - dayStartMs) / 3600000
+                property real eH: (modelData.end.getTime() - dayStartMs) / 3600000
+                property real topH: Math.max(sH, col.startH)
+                property real botH: Math.min(Math.max(eH, sH + 0.25), col.endH)
+                visible: eH > col.startH && sH < col.endH
+                x: 2
+                width: col.width - 4
+                y: (topH - col.startH) * root.hourPx
+                height: Math.max((botH - topH) * root.hourPx, 14)
+                radius: Style.radiusXS
+                color: Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, 0.22)
+
+                Rectangle { width: 3; height: parent.height; radius: 1; color: evRect.base }
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 2
+                    anchors.topMargin: 1
+                    spacing: 0
+                    NText {
+                        Layout.fillWidth: true
+                        text: modelData.summary
+                        pointSize: Style.fontSizeXS
+                        color: Color.mOnSurface
+                        elide: Text.ElideRight
+                    }
+                    NText {
+                        visible: evRect.height > 28
+                        text: Qt.formatDateTime(modelData.start, "hh:mm")
+                        pointSize: Style.fontSizeXS
+                        color: Color.mOnSurfaceVariant
+                    }
+                }
+                MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
+            }
+        }
+
+        // current-time indicator (only on today)
+        Rectangle {
+            property real nowH: {
+                var n = new Date()
+                return n.getHours() + n.getMinutes() / 60
+            }
+            visible: col.showNow && nowH >= col.startH && nowH <= col.endH
+            y: (nowH - col.startH) * root.hourPx
+            width: col.width
+            height: 2
+            color: Color.mError
+        }
+    }
+
+    // ====================================================================== //
     //  Month view
     // ====================================================================== //
     Component {
@@ -332,85 +439,115 @@ Item {
     }
 
     // ====================================================================== //
-    //  Week view (7 day columns, each a list of that day's events)
+    //  Week view (7 day columns over an hour grid)
     // ====================================================================== //
     Component {
         id: weekComp
-        RowLayout {
-            id: weekRow
+        ColumnLayout {
+            id: weekWrap
             spacing: Style.marginXS
+            property var weekStart: root.main ? root.main.startOfWeek(root.main.selectedDate) : new Date()
+            property int sH: root.main ? root.main.dayStartHour() : 7
+            property int eH: root.main ? root.main.dayEndHour() : 22
 
-            Repeater {
-                model: 7
-                delegate: ColumnLayout {
-                    id: dayColW
-                    required property int index
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: Style.marginXS
-                    property var day: root.main ? root.main.addDays(root.main.startOfWeek(root.main.selectedDate), index) : new Date()
-                    property bool isToday: root.main && root.main.sameDay(day, new Date())
-                    property var dayEvents: root.main ? root.main.eventsOnDay(day) : []
+            function allDayFor(i) {
+                if (!root.main) return []
+                return root.main.eventsOnDay(root.main.addDays(weekWrap.weekStart, i)).filter(function (e) { return e.allDay })
+            }
+            function timedFor(i) {
+                if (!root.main) return []
+                return root.main.eventsOnDay(root.main.addDays(weekWrap.weekStart, i)).filter(function (e) { return !e.allDay })
+            }
+            function anyAllDay() {
+                for (var i = 0; i < 7; i++) if (allDayFor(i).length) return true
+                return false
+            }
 
-                    Rectangle {
+            // Day headers
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Item { Layout.preferredWidth: root.gutterW }
+                Repeater {
+                    model: 7
+                    delegate: Rectangle {
+                        id: hdrRect
+                        required property int index
+                        property var day: root.main ? root.main.addDays(weekWrap.weekStart, index) : new Date()
+                        property bool isToday: root.main && root.main.sameDay(day, new Date())
                         Layout.fillWidth: true
-                        implicitHeight: hdr.implicitHeight + Style.marginXS * 2
+                        implicitHeight: wh.implicitHeight + Style.marginXS * 2
                         radius: Style.radiusS
-                        color: dayColW.isToday ? Color.mPrimary : Color.mSurfaceVariant
+                        color: hdrRect.isToday ? Color.mPrimary : Color.mSurfaceVariant
                         ColumnLayout {
-                            id: hdr
+                            id: wh
                             anchors.centerIn: parent
                             spacing: 0
-                            NText {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: Qt.formatDateTime(dayColW.day, "ddd")
-                                pointSize: Style.fontSizeXS
-                                color: dayColW.isToday ? Color.mOnPrimary : Color.mOnSurfaceVariant
-                            }
-                            NText {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: dayColW.day.getDate()
-                                pointSize: Style.fontSizeM
-                                color: dayColW.isToday ? Color.mOnPrimary : Color.mOnSurface
-                            }
+                            NText { Layout.alignment: Qt.AlignHCenter; text: Qt.formatDateTime(hdrRect.day, "ddd"); pointSize: Style.fontSizeXS; color: hdrRect.isToday ? Color.mOnPrimary : Color.mOnSurfaceVariant }
+                            NText { Layout.alignment: Qt.AlignHCenter; text: hdrRect.day.getDate(); pointSize: Style.fontSizeM; color: hdrRect.isToday ? Color.mOnPrimary : Color.mOnSurface }
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: { if (root.main) { root.main.selectedDate = dayColW.day; root.main.setView("day") } }
+                        MouseArea { anchors.fill: parent; onClicked: { if (root.main) { root.main.selectedDate = hdrRect.day; root.main.setView("day") } } }
+                    }
+                }
+            }
+
+            // All-day strip
+            RowLayout {
+                Layout.fillWidth: true
+                visible: weekWrap.anyAllDay()
+                spacing: 0
+                Item { Layout.preferredWidth: root.gutterW }
+                Repeater {
+                    model: 7
+                    delegate: ColumnLayout {
+                        id: adCol
+                        required property int index
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        spacing: 2
+                        property var ad: weekWrap.allDayFor(index)
+                        Repeater {
+                            model: adCol.ad
+                            delegate: Rectangle {
+                                id: adChip
+                                required property var modelData
+                                property color base: modelData.color
+                                Layout.fillWidth: true
+                                implicitHeight: 16
+                                radius: Style.radiusXS
+                                color: Qt.rgba(adChip.base.r, adChip.base.g, adChip.base.b, 0.22)
+                                NText { anchors.fill: parent; anchors.leftMargin: 4; verticalAlignment: Text.AlignVCenter; text: modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
+                                MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
+                            }
                         }
                     }
+                }
+            }
 
-                    ScrollView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        ColumnLayout {
-                            width: parent.width
-                            spacing: 2
-                            Repeater {
-                                model: dayColW.dayEvents
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    implicitHeight: chipCol.implicitHeight + Style.marginXS * 2
-                                    radius: Style.radiusXS
-                                    color: Color.mSurface
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        spacing: Style.marginXS
-                                        Rectangle { width: 3; Layout.fillHeight: true; radius: 1; color: modelData.color }
-                                        ColumnLayout {
-                                            id: chipCol
-                                            Layout.fillWidth: true
-                                            Layout.margins: Style.marginXS
-                                            spacing: 0
-                                            NText { Layout.fillWidth: true; text: modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
-                                            NText { text: root.timeRange(modelData); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
-                                        }
-                                    }
-                                    MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
-                                }
-                            }
+            // Hour grid timeline
+            Flickable {
+                id: wflick
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: width
+                contentHeight: wrow.implicitHeight
+                RowLayout {
+                    id: wrow
+                    width: wflick.width
+                    spacing: 0
+                    HourGutter { Layout.alignment: Qt.AlignTop; startH: weekWrap.sH; endH: weekWrap.eH }
+                    Repeater {
+                        model: 7
+                        delegate: HourColumn {
+                            required property int index
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            day: root.main ? root.main.addDays(weekWrap.weekStart, index) : new Date()
+                            events: weekWrap.timedFor(index)
+                            startH: weekWrap.sH
+                            endH: weekWrap.eH
+                            showNow: root.main && root.main.sameDay(day, new Date())
                         }
                     }
                 }
@@ -419,54 +556,72 @@ Item {
     }
 
     // ====================================================================== //
-    //  Day view (agenda)
+    //  Day view (single-day hour grid)
     // ====================================================================== //
     Component {
         id: dayComp
-        ScrollView {
-            clip: true
-            ColumnLayout {
-                id: dayCol
-                width: parent.width
-                spacing: Style.marginXS
+        ColumnLayout {
+            id: dayWrap
+            spacing: Style.marginXS
+            property var dayList: root.main ? root.main.eventsOnDay(root.main.selectedDate) : []
+            property var allDayEvents: dayWrap.dayList.filter(function (e) { return e.allDay })
+            property var timed: dayWrap.dayList.filter(function (e) { return !e.allDay })
+            property int sH: root.main ? root.main.dayStartHour() : 7
+            property int eH: root.main ? root.main.dayEndHour() : 22
 
-                property var dayEvents: root.main ? root.main.eventsOnDay(root.main.selectedDate) : []
-
-                NText {
-                    visible: dayCol.dayEvents.length === 0
-                    text: root.tr("panel.noEvents", "No events.")
-                    color: Color.mOnSurfaceVariant
-                    pointSize: Style.fontSizeS
-                }
-
-                Repeater {
-                    model: dayCol.dayEvents
-                    delegate: Rectangle {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        implicitHeight: row.implicitHeight + Style.marginM * 2
-                        radius: Style.radiusS
-                        color: Color.mSurfaceVariant
-                        RowLayout {
-                            id: row
-                            anchors.fill: parent
-                            anchors.margins: Style.marginM
-                            spacing: Style.marginM
-                            Rectangle { width: 4; Layout.fillHeight: true; radius: 2; color: modelData.color }
-                            NText {
-                                Layout.preferredWidth: 110 * Style.uiScaleRatio
-                                text: root.timeRange(modelData)
-                                pointSize: Style.fontSizeS
-                                color: Color.mOnSurfaceVariant
+            // All-day strip
+            RowLayout {
+                Layout.fillWidth: true
+                visible: dayWrap.allDayEvents.length > 0
+                spacing: 0
+                Item { Layout.preferredWidth: root.gutterW }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Repeater {
+                        model: dayWrap.allDayEvents
+                        delegate: Rectangle {
+                            id: adRect
+                            required property var modelData
+                            property color base: modelData.color
+                            Layout.fillWidth: true
+                            implicitHeight: 20
+                            radius: Style.radiusXS
+                            color: Qt.rgba(adRect.base.r, adRect.base.g, adRect.base.b, 0.22)
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                spacing: 4
+                                Rectangle { width: 3; Layout.fillHeight: true; radius: 1; color: adRect.base }
+                                NText { Layout.fillWidth: true; text: modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
                             }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                NText { Layout.fillWidth: true; text: modelData.summary; pointSize: Style.fontSizeM; color: Color.mOnSurface; elide: Text.ElideRight }
-                                NText { visible: modelData.location !== ""; Layout.fillWidth: true; text: modelData.location; pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant; elide: Text.ElideRight }
-                            }
+                            MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
                         }
-                        MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
+                    }
+                }
+            }
+
+            // Hour grid timeline
+            Flickable {
+                id: dflick
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: width
+                contentHeight: drow.implicitHeight
+                RowLayout {
+                    id: drow
+                    width: dflick.width
+                    spacing: 0
+                    HourGutter { Layout.alignment: Qt.AlignTop; startH: dayWrap.sH; endH: dayWrap.eH }
+                    HourColumn {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        day: root.main ? root.main.selectedDate : new Date()
+                        events: dayWrap.timed
+                        startH: dayWrap.sH
+                        endH: dayWrap.eH
+                        showNow: root.main && root.main.sameDay(root.main.selectedDate, new Date())
                     }
                 }
             }

@@ -31,6 +31,8 @@ Item {
     function settings() { return root.pluginApi?.pluginSettings ?? null }
     function bin() { return root.settings()?.binPath || "calsync" }
     function weekStartsOn() { return root.settings()?.weekStartsOn ?? 1 }
+    function dayStartHour() { return root.settings()?.dayStartHour ?? 7 }
+    function dayEndHour() { return root.settings()?.dayEndHour ?? 22 }
 
     Component.onCompleted: {
         root.viewMode = root.settings()?.defaultView || "month"
