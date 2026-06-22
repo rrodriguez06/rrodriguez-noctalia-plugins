@@ -36,6 +36,10 @@ Item {
     property var board: ({ "columns": [], "cards": [] })
     property string boardError: ""
 
+    // CalendarIds hidden from display (a UI-only toggle, stored in plugin settings;
+    // distinct from whether a calendar is synced, which lives in calsync config).
+    property var hiddenCalendars: []
+
     function settings() { return root.pluginApi?.pluginSettings ?? null }
     function bin() { return root.settings()?.binPath || "calsync" }
     function defaultView() { return root.settings()?.defaultView || "month" }
@@ -45,21 +49,43 @@ Item {
 
     Component.onCompleted: {
         root.viewMode = root.settings()?.defaultView || "month"
-        root._loadCalendarsFromSettings()
-        root.reloadWindow()
+        root._loadCalendars()
     }
 
     // ── Calendar metadata (colors / visibility) ──────────────────────────────
-    function _loadCalendarsFromSettings() {
-        root.calendars = (root.settings()?.calendars ?? []).map(function (c) {
+    // Calendar id/source/color/summary come from calsync's config (the source of
+    // truth for what is synced); the per-calendar display-hide toggle lives in
+    // plugin settings. Loading config is async, so events are (re)loaded once it
+    // returns so colors/visibility are applied on first paint.
+    Process {
+        id: configProc
+        stdout: StdioCollector { onStreamFinished: root._onConfigLoaded(this.text || "") }
+        onExited: code => { if (code !== 0) Logger.w("Calendar", "config get exited " + code) }
+    }
+
+    function _loadCalendars() {
+        root.hiddenCalendars = (root.settings()?.hiddenCalendars ?? []).slice()
+        configProc.running = false
+        configProc.command = [root.bin(), "config", "get"]
+        configProc.running = true
+    }
+
+    function _onConfigLoaded(text) {
+        var parsed
+        try { parsed = JSON.parse(text) } catch (e) { parsed = null }
+        var cals = (parsed && parsed.calendars) ? parsed.calendars : []
+        root.calendars = cals.map(function (c) {
             return {
                 "id": c.id ?? "",
+                "account": c.account ?? "",
                 "source": c.source ?? "",
                 "color": c.color ?? "",
                 "summary": c.summary ?? "",
-                "visible": c.visible !== false
+                "visible": root.hiddenCalendars.indexOf(c.id ?? "") < 0
             }
         })
+        root.reloadWindow()
+        root.reloadAgenda()
     }
 
     function colorForSource(src) {
@@ -74,6 +100,34 @@ Item {
             if (root.calendars[i].source === src)
                 return root.calendars[i].visible
         return true
+    }
+
+    // Per-calendar color (keyed by calendarId, the Google-like model). Falls back
+    // to the source color, then the theme primary.
+    function colorForCalendar(calId) {
+        for (var i = 0; i < root.calendars.length; i++)
+            if (root.calendars[i].id === calId && root.calendars[i].color)
+                return root.calendars[i].color
+        return Color.mPrimary
+    }
+
+    // Per-calendar visibility (keyed by calendarId); a calendar is hidden only if
+    // the user toggled it off in settings. Unknown calendars are visible.
+    function calendarVisible(calId) {
+        return root.hiddenCalendars.indexOf(calId) < 0
+    }
+
+    // Calendars usable as event-creation targets (synced + writable). Read-only
+    // sources like holidays are excluded.
+    function writableCalendars() {
+        var out = []
+        for (var i = 0; i < root.calendars.length; i++) {
+            var c = root.calendars[i]
+            if (c.source === "holidays") continue
+            if (!c.id) continue
+            out.push(c)
+        }
+        return out
     }
 
     // ── Date helpers ─────────────────────────────────────────────────────────
@@ -213,17 +267,17 @@ Item {
         root._recomputeBadge()
     }
 
-    // Map raw calsync event JSON to the UI event model (filtering hidden sources).
+    // Map raw calsync event JSON to the UI event model (filtering hidden calendars).
     function _mapEvents(list) {
         var out = []
         for (var i = 0; i < list.length; i++) {
             var e = list[i]
-            if (!root.sourceVisible(e.source)) continue
+            if (!root.calendarVisible(e.calendarId)) continue
             out.push({
                 "id": e.id,
                 "calendarId": e.calendarId,
                 "source": e.source || "",
-                "color": root.colorForSource(e.source),
+                "color": root.colorForCalendar(e.calendarId),
                 "summary": e.summary || "(sans titre)",
                 "location": e.location || "",
                 "description": e.description || "",
@@ -232,6 +286,8 @@ Item {
                 "recurring": e.recurring === true,
                 "recurringEventId": e.recurringEventId || "",
                 "instanceStart": e.instanceStart || "",
+                "attendees": e.attendees || [],
+                "selfResponse": e.selfResponse || "",
                 "start": e.allDay ? root._parseDate(e.start) : new Date(e.start),
                 "end": e.allDay ? root._parseDate(e.end) : new Date(e.end)
             })
@@ -292,19 +348,27 @@ Item {
         root.reloadWindow()
     }
 
+    // Create an event. fields: { summary, start, end, allDay, location, desc,
+    //   calendarId (preferred) | source, recurrence (RRULE body), attendees
+    //   (comma-separated emails), notify ("all"|"none"|"external") }.
     // start/end are ISO strings (RFC3339) or YYYY-MM-DD when allDay.
-    function addEvent(source, summary, start, end, allDay, location, desc) {
-        var cmd = [root.bin(), "event", "add", "--summary", summary, "--start", start,
-                   "--calendar", source]
-        if (end) cmd.push("--end", end)
-        if (allDay) cmd.push("--all-day")
-        if (location) cmd.push("--location", location)
-        if (desc) cmd.push("--desc", desc)
+    function addEvent(fields) {
+        var cmd = [root.bin(), "event", "add", "--summary", fields.summary, "--start", fields.start]
+        if (fields.calendarId) cmd.push("--calendar-id", fields.calendarId)
+        else if (fields.source) cmd.push("--calendar", fields.source)
+        if (fields.end) cmd.push("--end", fields.end)
+        if (fields.allDay) cmd.push("--all-day")
+        if (fields.location) cmd.push("--location", fields.location)
+        if (fields.desc) cmd.push("--desc", fields.desc)
+        if (fields.recurrence) cmd.push("--recurrence", fields.recurrence)
+        if (fields.attendees !== undefined && fields.attendees !== "") cmd.push("--attendees", fields.attendees)
+        if (fields.notify) cmd.push("--notify", fields.notify)
         root._runMutate(cmd)
     }
 
     // fields may carry scope ("this"|"following"|"all") and instance (the target
-    // occurrence's original start) for recurring-event edits.
+    // occurrence's original start) for recurring-event edits, plus attendees /
+    // recurrence / notify.
     function editEvent(id, fields) {
         var cmd = [root.bin(), "event", "edit", id]
         if (fields.summary !== undefined) cmd.push("--summary", fields.summary)
@@ -313,8 +377,20 @@ Item {
         if (fields.allDay) cmd.push("--all-day")
         if (fields.location !== undefined) cmd.push("--location", fields.location)
         if (fields.desc !== undefined) cmd.push("--desc", fields.desc)
+        if (fields.recurrence !== undefined) cmd.push("--recurrence", fields.recurrence)
+        if (fields.attendees !== undefined) cmd.push("--attendees", fields.attendees)
+        if (fields.notify) cmd.push("--notify", fields.notify)
         if (fields.scope) cmd.push("--scope", fields.scope)
         if (fields.instance) cmd.push("--instance", fields.instance)
+        root._runMutate(cmd)
+    }
+
+    // Set the authenticated user's RSVP on an event. scope/instance apply to a
+    // single occurrence of a recurring event (scope "this" + instance origStart).
+    function respondEvent(id, response, scope, instance) {
+        var cmd = [root.bin(), "event", "respond", id, "--response", response]
+        if (scope) cmd.push("--scope", scope)
+        if (instance) cmd.push("--instance", instance)
         root._runMutate(cmd)
     }
 
@@ -484,9 +560,7 @@ Item {
     function setPanelOpen(open) {
         root.panelOpen = open
         if (open) {
-            root._loadCalendarsFromSettings()
-            root.reloadWindow()
-            root.reloadAgenda()
+            root._loadCalendars() // reloads window + agenda once config returns
             root.reloadBoard()
             if (root.settings()?.syncOnOpen ?? true) root.syncNow()
             root.startWatch()

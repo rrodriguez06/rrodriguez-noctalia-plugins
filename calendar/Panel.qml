@@ -43,10 +43,21 @@ Item {
     property string edLocation: ""
     property string edDesc: ""
     property string edSource: ""
+    property string edCalendarId: "" // real Google calendar id (creation target)
     // Recurring-event editing.
     property bool edRecurring: false
     property string edInstanceStart: ""
     property string edScope: "this" // this | following | all
+    // Recurrence builder (creation). edRepeatType "none" → non-recurring.
+    property string edRepeatType: "none" // none | daily | weekly | monthly | yearly
+    property int edRepeatInterval: 1
+    property string edRepeatEnd: "never" // never | until | count
+    property string edRepeatUntil: ""
+    property int edRepeatCount: 10
+    // Attendees (invitees). Each: {email, displayName, responseStatus, organizer, self}.
+    property var edAttendees: []
+    property bool edAttendeesDirty: false
+    property bool edNotify: true // email attendees on save when guests exist
 
     // Inspection (read-only) state — clicking an event opens this first.
     property bool inspecting: false
@@ -142,6 +153,96 @@ Item {
         return out
     }
 
+    // Real Google calendars usable as creation targets (id → display name).
+    function calendarModel() {
+        var out = []
+        var cals = main ? main.writableCalendars() : []
+        for (var i = 0; i < cals.length; i++) {
+            var c = cals[i]
+            out.push({ "key": c.id, "name": (c.summary && c.summary !== "") ? c.summary : c.id })
+        }
+        return out
+    }
+
+    function repeatModel() {
+        return [{ "key": "none", "name": root.tr("editor.repeatNever", "Does not repeat") },
+                { "key": "daily", "name": root.tr("editor.repeatDaily", "Daily") },
+                { "key": "weekly", "name": root.tr("editor.repeatWeekly", "Weekly") },
+                { "key": "monthly", "name": root.tr("editor.repeatMonthly", "Monthly") },
+                { "key": "yearly", "name": root.tr("editor.repeatYearly", "Yearly") }]
+    }
+
+    function repeatEndModel() {
+        return [{ "key": "never", "name": root.tr("editor.endNever", "Never") },
+                { "key": "until", "name": root.tr("editor.endOnDate", "On date") },
+                { "key": "count", "name": root.tr("editor.endAfterCount", "After N times") }]
+    }
+
+    // Build an RRULE body (no "RRULE:" prefix) from the recurrence builder state.
+    // Returns "" when not recurring. UNTIL uses a date for all-day, else a UTC
+    // date-time at the event's start time.
+    function buildRRULE() {
+        if (root.edRepeatType === "none" || root.edRepeatType === "") return ""
+        var freq = root.edRepeatType.toUpperCase()
+        var parts = ["FREQ=" + freq]
+        var iv = root.edRepeatInterval > 1 ? root.edRepeatInterval : 0
+        if (iv) parts.push("INTERVAL=" + iv)
+        if (root.edRepeatType === "weekly") {
+            var dayCodes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+            var d = new Date(root.edStartDate + "T00:00:00")
+            parts.push("BYDAY=" + dayCodes[d.getDay()])
+        }
+        if (root.edRepeatEnd === "until" && root.edRepeatUntil !== "") {
+            if (root.edAllDay) {
+                parts.push("UNTIL=" + root.edRepeatUntil.replace(/-/g, ""))
+            } else {
+                var u = new Date(root.edRepeatUntil + "T" + (root.edEndTime || "23:59") + ":00")
+                parts.push("UNTIL=" + Qt.formatDateTime(u, "yyyyMMddThhmmss") + "Z")
+            }
+        } else if (root.edRepeatEnd === "count" && root.edRepeatCount > 0) {
+            parts.push("COUNT=" + root.edRepeatCount)
+        }
+        return parts.join(";")
+    }
+
+    // Attendee editor mutations (keep edAttendees immutable for binding updates).
+    function addAttendeeEmail(email) {
+        var e = (email || "").trim()
+        if (e === "") return
+        var copy = root.edAttendees.slice()
+        for (var i = 0; i < copy.length; i++) if (copy[i].email === e) return
+        copy.push({ "email": e, "displayName": "", "responseStatus": "needsAction", "organizer": false, "self": false })
+        root.edAttendees = copy
+        root.edAttendeesDirty = true
+    }
+    function removeAttendee(idx) {
+        if (idx < 0 || idx >= root.edAttendees.length) return
+        var copy = root.edAttendees.slice()
+        copy.splice(idx, 1)
+        root.edAttendees = copy
+        root.edAttendeesDirty = true
+    }
+    function attendeesCSV() {
+        var emails = []
+        for (var i = 0; i < root.edAttendees.length; i++)
+            if (root.edAttendees[i].email) emails.push(root.edAttendees[i].email)
+        return emails.join(",")
+    }
+
+    // Localized label + color for an RSVP status.
+    function responseLabel(s) {
+        if (s === "accepted") return root.tr("inspect.statusAccepted", "Going")
+        if (s === "declined") return root.tr("inspect.statusDeclined", "Not going")
+        if (s === "tentative") return root.tr("inspect.statusTentative", "Maybe")
+        return root.tr("inspect.statusNeedsAction", "No reply")
+    }
+    function responseColor(s) {
+        if (s === "accepted") return Color.mPrimary
+        if (s === "declined") return Color.mError
+        if (s === "tentative") return Color.mSecondary
+        return Color.mOnSurfaceVariant
+    }
+
     // ── Editor helpers ───────────────────────────────────────────────────────
     // frac is a fraction-of-day in hours (e.g. 9.5 = 09:30) → "HH:MM".
     function fracToTime(f) {
@@ -176,8 +277,18 @@ Item {
         root.edRecurring = false
         root.edInstanceStart = ""
         root.edScope = "this"
+        root.edRepeatType = "none"
+        root.edRepeatInterval = 1
+        root.edRepeatEnd = "never"
+        root.edRepeatUntil = ""
+        root.edRepeatCount = 10
+        root.edAttendees = []
+        root.edAttendeesDirty = false
+        root.edNotify = true
         var sm = root.sourceModel()
         root.edSource = sm.length ? sm[0].key : "perso"
+        var cm = root.calendarModel()
+        root.edCalendarId = cm.length ? cm[0].key : ""
         root.editing = true
     }
 
@@ -192,9 +303,15 @@ Item {
         root.edLocation = ev.location
         root.edDesc = ev.description
         root.edSource = ev.source
+        root.edCalendarId = ev.calendarId || ""
         root.edRecurring = ev.recurring === true
         root.edInstanceStart = ev.instanceStart || ""
         root.edScope = "this" // safest default for a recurring occurrence
+        // Recurrence builder is creation-only; editing keeps the scope selector.
+        root.edRepeatType = "none"
+        root.edAttendees = (ev.attendees || []).slice()
+        root.edAttendeesDirty = false
+        root.edNotify = true
         root.editing = true
     }
 
@@ -210,6 +327,18 @@ Item {
         if (ev) root.openEdit(ev)
     }
 
+    // RSVP from the inspection overlay. Targets the single occurrence for a
+    // recurring instance, otherwise the event/master. Updates insEvent optimistically.
+    function respondFromInspect(status) {
+        var ev = root.insEvent
+        if (!ev || !main) return
+        if (ev.recurring && ev.instanceStart)
+            main.respondEvent(ev.id, status, "this", ev.instanceStart)
+        else
+            main.respondEvent(ev.id, status)
+        root.insEvent = Object.assign({}, ev, { "selfResponse": status })
+    }
+
     function buildISO(dateStr, timeStr) {
         var dt = new Date(dateStr + "T" + timeStr + ":00")
         return dt.toISOString()
@@ -219,13 +348,22 @@ Item {
         if (!main) return
         var start = root.edAllDay ? root.edStartDate : root.buildISO(root.edStartDate, root.edStartTime)
         var end = root.edAllDay ? root.edEndDate : root.buildISO(root.edEndDate, root.edEndTime)
+        var notify = root.edNotify ? "all" : "none"
         if (root.edId === "") {
-            main.addEvent(root.edSource, root.edSummary, start, end, root.edAllDay, root.edLocation, root.edDesc)
+            main.addEvent({
+                "summary": root.edSummary, "start": start, "end": end,
+                "allDay": root.edAllDay, "location": root.edLocation, "desc": root.edDesc,
+                "calendarId": root.edCalendarId, "source": root.edSource,
+                "recurrence": root.buildRRULE(),
+                "attendees": root.attendeesCSV(), "notify": notify
+            })
         } else {
             var fields = {
                 "summary": root.edSummary, "start": start, "end": end,
-                "allDay": root.edAllDay, "location": root.edLocation, "desc": root.edDesc
+                "allDay": root.edAllDay, "location": root.edLocation, "desc": root.edDesc,
+                "notify": notify
             }
+            if (root.edAttendeesDirty) fields.attendees = root.attendeesCSV()
             if (root.edRecurring) {
                 fields.scope = root.edScope
                 fields.instance = root.edInstanceStart
@@ -1443,6 +1581,98 @@ Item {
                         }
                     }
 
+                    // Attendees list
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: root.insEvent && root.insEvent.attendees && root.insEvent.attendees.length > 0
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("inspect.attendees", "Guests") + " (" + (root.insEvent ? root.insEvent.attendees.length : 0) + ")"
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        Flickable {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.min(attCol.implicitHeight, 140 * Style.uiScaleRatio)
+                            contentWidth: width
+                            contentHeight: attCol.implicitHeight
+                            clip: true
+                            ColumnLayout {
+                                id: attCol
+                                width: parent.width
+                                spacing: Style.marginXXS
+                                Repeater {
+                                    model: root.insEvent ? root.insEvent.attendees : []
+                                    delegate: RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: Style.marginS
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignVCenter
+                                            width: 8; height: 8; radius: 4
+                                            color: root.responseColor(modelData.responseStatus)
+                                        }
+                                        NText {
+                                            Layout.fillWidth: true
+                                            text: (modelData.displayName && modelData.displayName !== "") ? modelData.displayName : modelData.email
+                                            pointSize: Style.fontSizeXS
+                                            color: Color.mOnSurface
+                                            elide: Text.ElideRight
+                                        }
+                                        NText {
+                                            visible: modelData.organizer === true
+                                            text: root.tr("inspect.organizer", "Organizer")
+                                            pointSize: Style.fontSizeXS
+                                            color: Color.mOnSurfaceVariant
+                                        }
+                                        NText {
+                                            text: root.responseLabel(modelData.responseStatus)
+                                            pointSize: Style.fontSizeXS
+                                            color: root.responseColor(modelData.responseStatus)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // RSVP buttons (only when the user is an invitee).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: root.insEvent && root.insEvent.selfResponse && root.insEvent.selfResponse !== ""
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("inspect.yourResponse", "Your response")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginS
+                            NButton {
+                                Layout.fillWidth: true
+                                text: root.tr("inspect.respondYes", "Going")
+                                backgroundColor: Color.mPrimary
+                                outlined: !(root.insEvent && root.insEvent.selfResponse === "accepted")
+                                onClicked: root.respondFromInspect("accepted")
+                            }
+                            NButton {
+                                Layout.fillWidth: true
+                                text: root.tr("inspect.respondMaybe", "Maybe")
+                                backgroundColor: Color.mSecondary
+                                outlined: !(root.insEvent && root.insEvent.selfResponse === "tentative")
+                                onClicked: root.respondFromInspect("tentative")
+                            }
+                            NButton {
+                                Layout.fillWidth: true
+                                text: root.tr("inspect.respondNo", "No")
+                                backgroundColor: Color.mError
+                                outlined: !(root.insEvent && root.insEvent.selfResponse === "declined")
+                                onClicked: root.respondFromInspect("declined")
+                            }
+                        }
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: Style.marginXS
@@ -1570,11 +1800,140 @@ Item {
                         onEditingFinished: root.edDesc = text
                     }
 
-                    NComboBox {
+                    // Target calendar (creation only — events stay in their calendar).
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        model: root.sourceModel()
-                        currentKey: root.edSource
-                        onSelected: (key) => root.edSource = key
+                        visible: root.edId === ""
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("editor.calendar", "Calendar")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        NComboBox {
+                            Layout.fillWidth: true
+                            model: root.calendarModel()
+                            currentKey: root.edCalendarId
+                            onSelected: (key) => root.edCalendarId = key
+                        }
+                    }
+
+                    // Recurrence builder (creation only).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: root.edId === ""
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("editor.repeat", "Repeat")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        NComboBox {
+                            Layout.fillWidth: true
+                            model: root.repeatModel()
+                            currentKey: root.edRepeatType
+                            onSelected: (key) => root.edRepeatType = key
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.edRepeatType !== "none"
+                            spacing: Style.marginS
+                            NText {
+                                text: root.tr("editor.every", "Every")
+                                pointSize: Style.fontSizeXS
+                                color: Color.mOnSurfaceVariant
+                            }
+                            NTextInput {
+                                Layout.preferredWidth: 60 * Style.uiScaleRatio
+                                text: String(root.edRepeatInterval)
+                                onEditingFinished: {
+                                    var n = parseInt(text)
+                                    root.edRepeatInterval = (isNaN(n) || n < 1) ? 1 : n
+                                }
+                            }
+                            NComboBox {
+                                Layout.fillWidth: true
+                                model: root.repeatEndModel()
+                                currentKey: root.edRepeatEnd
+                                onSelected: (key) => root.edRepeatEnd = key
+                            }
+                        }
+                        NTextInput {
+                            Layout.fillWidth: true
+                            visible: root.edRepeatType !== "none" && root.edRepeatEnd === "until"
+                            text: root.edRepeatUntil
+                            placeholderText: "YYYY-MM-DD"
+                            onEditingFinished: root.edRepeatUntil = text
+                        }
+                        NTextInput {
+                            Layout.preferredWidth: 80 * Style.uiScaleRatio
+                            visible: root.edRepeatType !== "none" && root.edRepeatEnd === "count"
+                            text: String(root.edRepeatCount)
+                            placeholderText: root.tr("editor.count", "Count")
+                            onEditingFinished: {
+                                var n = parseInt(text)
+                                root.edRepeatCount = (isNaN(n) || n < 1) ? 1 : n
+                            }
+                        }
+                    }
+
+                    // Attendees (invitees) editor.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("editor.attendees", "Guests")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        Repeater {
+                            model: root.edAttendees
+                            delegate: RowLayout {
+                                required property int index
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: Style.marginS
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    width: 8; height: 8; radius: 4
+                                    color: root.responseColor(modelData.responseStatus)
+                                }
+                                NText {
+                                    Layout.fillWidth: true
+                                    text: (modelData.displayName && modelData.displayName !== "") ? modelData.displayName : modelData.email
+                                    pointSize: Style.fontSizeXS
+                                    color: Color.mOnSurface
+                                    elide: Text.ElideRight
+                                }
+                                NIconButton {
+                                    icon: "close"
+                                    tooltipText: root.tr("editor.removeAttendee", "Remove")
+                                    onClicked: root.removeAttendee(index)
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginS
+                            NTextInput {
+                                id: attendeeInput
+                                Layout.fillWidth: true
+                                placeholderText: root.tr("editor.addAttendee", "Add guest email")
+                                onAccepted: { root.addAttendeeEmail(text); text = "" }
+                            }
+                            NIconButton {
+                                icon: "plus"
+                                tooltipText: root.tr("editor.addAttendee", "Add guest email")
+                                onClicked: { root.addAttendeeEmail(attendeeInput.text); attendeeInput.text = "" }
+                            }
+                        }
+                        NToggle {
+                            Layout.fillWidth: true
+                            visible: root.edAttendees.length > 0
+                            label: root.tr("editor.notify", "Notify guests by email")
+                            checked: root.edNotify
+                            onToggled: (v) => root.edNotify = v
+                        }
                     }
 
                     RowLayout {
