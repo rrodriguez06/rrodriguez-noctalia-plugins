@@ -576,7 +576,7 @@ Item {
                         NIconButton { icon: "chevron-left"; tooltipText: root.tr("panel.prev", "Previous"); onClicked: if (root.main) root.main.goPrev() }
                         NIconButton { icon: "calendar"; tooltipText: root.tr("panel.today", "Today"); onClicked: if (root.main) root.main.goToday() }
                         NIconButton { icon: "chevron-right"; tooltipText: root.tr("panel.next", "Next"); onClicked: if (root.main) root.main.goNext() }
-                        NIconButton { icon: "expand"; tooltipText: root.tr("compact.openFull", "Open full calendar"); onClicked: root.compact = false }
+                        NIconButton { icon: "expand"; tooltipText: root.tr("compact.openFull", "Open full calendar"); onClicked: { root.compact = false; if (root.main) root.main.setView(root.main.defaultView()) } }
                     }
 
                     // Weekday header (2-letter uppercase, bold, accent — like the Clock).

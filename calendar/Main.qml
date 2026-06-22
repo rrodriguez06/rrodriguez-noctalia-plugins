@@ -38,6 +38,7 @@ Item {
 
     function settings() { return root.pluginApi?.pluginSettings ?? null }
     function bin() { return root.settings()?.binPath || "calsync" }
+    function defaultView() { return root.settings()?.defaultView || "month" }
     function weekStartsOn() { return root.settings()?.weekStartsOn ?? 1 }
     function dayStartHour() { return root.settings()?.dayStartHour ?? 7 }
     function dayEndHour() { return root.settings()?.dayEndHour ?? 22 }
