@@ -37,7 +37,6 @@ ColumnLayout {
     property int weekStartsOn: 1
     property bool syncOnOpen: true
     property bool ensureDaemon: true
-    property bool enableTasks: false
     property string binPath: "calsync"
     property string barFormat: "HH:mm ddd, MMM dd"
     property string barFormatVertical: "HH mm - dd MM"
@@ -57,7 +56,6 @@ ColumnLayout {
         weekStartsOn = s.weekStartsOn ?? 1
         syncOnOpen = s.syncOnOpen !== false
         ensureDaemon = s.ensureDaemon !== false
-        enableTasks = s.enableTasks === true
         binPath = s.binPath ?? "calsync"
         barFormat = s.barFormat ?? "HH:mm ddd, MMM dd"
         barFormatVertical = s.barFormatVertical ?? "HH mm - dd MM"
@@ -71,7 +69,6 @@ ColumnLayout {
         s.weekStartsOn = root.weekStartsOn
         s.syncOnOpen = root.syncOnOpen
         s.ensureDaemon = root.ensureDaemon
-        s.enableTasks = root.enableTasks
         s.binPath = root.binPath
         s.barFormat = root.barFormat
         s.barFormatVertical = root.barFormatVertical
@@ -463,13 +460,6 @@ ColumnLayout {
             description: root.tr("settings.ensureDaemonDesc", "Runs `systemctl --user enable --now calsync` when the panel opens and the daemon isn't running.")
             checked: root.ensureDaemon
             onToggled: (v) => { root.ensureDaemon = v; root.saveSettings() }
-        }
-        NToggle {
-            Layout.fillWidth: true
-            label: root.tr("settings.enableTasks", "Link the board to Google Tasks")
-            description: root.tr("settings.enableTasksDesc", "Shows a “Sync Tasks” button on the board. Requires re-running `calsync auth` to grant the Tasks scope.")
-            checked: root.enableTasks
-            onToggled: (v) => { root.enableTasks = v; root.saveSettings() }
         }
 
         ColumnLayout {

@@ -32,10 +32,6 @@ Item {
     // the grid window so it stays correct when navigating months in compact view).
     property var agenda: []
 
-    // Local kanban board ({ columns: [...], cards: [...] }).
-    property var board: ({ "columns": [], "cards": [] })
-    property string boardError: ""
-
     // CalendarIds hidden from display (a UI-only toggle, stored in plugin settings;
     // distinct from whether a calendar is synced, which lives in calsync config).
     property var hiddenCalendars: []
@@ -408,163 +404,6 @@ Item {
         mutateProc.running = true
     }
 
-    // ── Kanban board (local-first) ───────────────────────────────────────────
-    Process {
-        id: boardProc
-        stdout: StdioCollector { onStreamFinished: root._onBoardLoaded(this.text || "") }
-        onExited: code => { if (code !== 0) Logger.w("Calendar", "board get exited " + code) }
-    }
-    Process {
-        id: boardMutateProc
-        stdout: StdioCollector { onStreamFinished: root._onBoardMutated(this.text || "") }
-        onExited: code => { if (code !== 0) Logger.w("Calendar", "board mutate exited " + code) }
-    }
-
-    function reloadBoard() {
-        boardProc.running = false
-        boardProc.command = [root.bin(), "board", "get"]
-        boardProc.running = true
-    }
-
-    function _onBoardLoaded(text) {
-        var parsed
-        try { parsed = JSON.parse(text) } catch (e) { Logger.w("Calendar", "board parse error: " + e); return }
-        if (parsed && parsed.ok === false) {
-            root.boardError = parsed.error ? parsed.error.message : "error"
-            return
-        }
-        root.boardError = ""
-        root.board = (parsed && parsed.board) ? parsed.board : { "columns": [], "cards": [] }
-    }
-
-    function _onBoardMutated(text) {
-        var parsed
-        try { parsed = JSON.parse(text) } catch (e) { parsed = null }
-        if (parsed && parsed.ok === false)
-            root.boardError = parsed.error ? parsed.error.message : "error"
-        root.reloadBoard()
-    }
-
-    function _runBoard(cmd) {
-        boardMutateProc.running = false
-        boardMutateProc.command = cmd
-        boardMutateProc.running = true
-    }
-
-    // fields: {column, notes, priority, progress, due, labels:[id,...]}
-    function addCard(title, fields) {
-        var cmd = [root.bin(), "board", "add-card", "--title", title]
-        if (fields) {
-            if (fields.column) cmd.push("--column", fields.column)
-            if (fields.notes !== undefined) cmd.push("--notes", fields.notes)
-            if (fields.priority) cmd.push("--priority", fields.priority)
-            if (fields.progress !== undefined) cmd.push("--progress", String(fields.progress))
-            if (fields.due) cmd.push("--due", fields.due)
-            if (fields.labels !== undefined) cmd.push("--labels", fields.labels.join(","))
-            if (fields.recurrence !== undefined && fields.recurrence !== "" && fields.recurrence !== "none")
-                cmd.push("--recurrence", fields.recurrence)
-        }
-        root._runBoard(cmd)
-    }
-
-    // fields: {title, notes, priority, progress, due, column, labels:[id,...]}
-    function updateCard(id, fields) {
-        var cmd = [root.bin(), "board", "update-card", id]
-        if (fields.title !== undefined) cmd.push("--title", fields.title)
-        if (fields.notes !== undefined) cmd.push("--notes", fields.notes)
-        if (fields.priority !== undefined) cmd.push("--priority", fields.priority)
-        if (fields.progress !== undefined) cmd.push("--progress", String(fields.progress))
-        if (fields.due !== undefined) cmd.push("--due", fields.due)
-        if (fields.column !== undefined) cmd.push("--column", fields.column)
-        if (fields.labels !== undefined) cmd.push("--labels", fields.labels.join(","))
-        if (fields.recurrence !== undefined) cmd.push("--recurrence", fields.recurrence) // "none" clears
-        root._runBoard(cmd)
-    }
-
-    // Board label registry (coloured tags shared across cards).
-    function addLabel(name, color) { root._runBoard([root.bin(), "board", "label", "add", "--name", name, "--color", color]) }
-    function rmLabel(id) { root._runBoard([root.bin(), "board", "label", "rm", id]) }
-
-    // Checklist sub-tasks (mutate immediately; progress is derived server-side).
-    function addCheck(cardId, text) { root._runBoard([root.bin(), "board", "check", "add", cardId, "--text", text]) }
-    function toggleCheck(cardId, itemId) { root._runBoard([root.bin(), "board", "check", "toggle", cardId, itemId]) }
-    function rmCheck(cardId, itemId) { root._runBoard([root.bin(), "board", "check", "rm", cardId, itemId]) }
-
-    // ── Card scheduling (time-blocking) ──────────────────────────────────────
-    // Local block (plugin-only, not pushed to Google).
-    function scheduleLocal(cardId, startISO, endISO) {
-        root._runBoard([root.bin(), "board", "schedule", cardId, "--start", startISO, "--end", endISO])
-    }
-    // Real Google event linked to the card (calendarId optional → default calendar).
-    function scheduleReal(cardId, startISO, endISO, calendarId) {
-        var cmd = [root.bin(), "board", "schedule", cardId, "--start", startISO, "--end", endISO, "--real"]
-        if (calendarId) cmd.push("--calendar-id", calendarId)
-        root._runBoard(cmd)
-    }
-    function unschedule(cardId) { root._runBoard([root.bin(), "board", "unschedule", cardId]) }
-
-    // Task local-blocks that intersect `day`, shaped like calendar events so the
-    // hour grid can pack/render them alongside real events (kind = "taskBlock").
-    function taskBlocksOnDay(day) {
-        var cards = (root.board && root.board.cards) ? root.board.cards : []
-        var dayStart = root.startOfDay(day)
-        var dayEnd = root.addDays(dayStart, 1)
-        var out = []
-        for (var i = 0; i < cards.length; i++) {
-            var c = cards[i]
-            if (!c.schedule || !c.schedule.start || !c.schedule.end) continue
-            var s = new Date(c.schedule.start), e = new Date(c.schedule.end)
-            if (isNaN(s.getTime()) || isNaN(e.getTime())) continue
-            if (e.getTime() > dayStart.getTime() && s.getTime() < dayEnd.getTime())
-                out.push({ "id": "task-" + c.id, "taskCardId": c.id, "kind": "taskBlock",
-                           "summary": c.title, "location": "", "allDay": false,
-                           "priority": c.priority || "normal", "start": s, "end": e })
-        }
-        return out
-    }
-
-    // Cards whose due date falls on `day` (deadline markers).
-    function tasksDueOnDay(day) {
-        var cards = (root.board && root.board.cards) ? root.board.cards : []
-        var dayStart = root.startOfDay(day)
-        var dayEnd = root.addDays(dayStart, 1)
-        var out = []
-        for (var i = 0; i < cards.length; i++) {
-            var c = cards[i]
-            if (!c.due) continue
-            var d = (c.due.length === 10)
-                ? new Date(Number(c.due.slice(0, 4)), Number(c.due.slice(5, 7)) - 1, Number(c.due.slice(8, 10)))
-                : new Date(c.due)
-            if (isNaN(d.getTime())) continue
-            if (d.getTime() >= dayStart.getTime() && d.getTime() < dayEnd.getTime())
-                out.push({ "cardId": c.id, "title": c.title, "due": c.due, "priority": c.priority || "normal" })
-        }
-        return out
-    }
-
-    // If a calendar event is linked to a task card, return that card's id (else "").
-    function eventLinkedTaskId(eventId) {
-        if (!eventId) return ""
-        var cards = (root.board && root.board.cards) ? root.board.cards : []
-        for (var i = 0; i < cards.length; i++)
-            if (cards[i].calendarEventId === eventId) return cards[i].id
-        return ""
-    }
-
-    function moveCard(id, column, order) {
-        var cmd = [root.bin(), "board", "move-card", id, "--column", column]
-        if (order !== undefined && order !== null) cmd.push("--order", String(order))
-        root._runBoard(cmd)
-    }
-
-    function rmCard(id) { root._runBoard([root.bin(), "board", "rm-card", id]) }
-    function addColumn(name) { root._runBoard([root.bin(), "board", "add-column", "--name", name]) }
-    function rmColumn(id) { root._runBoard([root.bin(), "board", "rm-column", id]) }
-
-    // Optional Google Tasks link (off unless enabled in settings; needs re-consent).
-    function tasksEnabled() { return root.settings()?.enableTasks === true }
-    function syncTasks() { root._runBoard([root.bin(), "board", "sync-tasks"]) }
-
     // Force a sync then reload (manual refresh button).
     Process {
         id: syncProc
@@ -636,7 +475,6 @@ Item {
         root.panelOpen = open
         if (open) {
             root._loadCalendars() // reloads window + agenda once config returns
-            root.reloadBoard()
             if (root.settings()?.syncOnOpen ?? true) root.syncNow()
             root.startWatch()
         } else {
