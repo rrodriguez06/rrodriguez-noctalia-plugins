@@ -7,6 +7,10 @@
         "refresh": "Refresh",
         "settings": "Settings"
     },
+    "compact": {
+        "openFull": "Open full calendar",
+        "back": "Compact view"
+    },
     "panel": {
         "today": "Today",
         "month": "Month",

@@ -3,6 +3,8 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import qs.Commons
 import qs.Widgets
+import qs.Modules.Cards
+import qs.Services.Location
 
 // Calendar panel: header (period nav + view switch + actions), month/week/day
 // views, and an event editor overlay. All data comes from main (the CLI bridge).
@@ -14,8 +16,11 @@ Item {
     // Noctalia panel contract.
     readonly property var geometryPlaceholder: panelContainer
     readonly property bool allowAttach: true
-    property real contentPreferredWidth: 920 * Style.uiScaleRatio
-    property real contentPreferredHeight: 680 * Style.uiScaleRatio
+    // Compact (Clock-like) view opens by default; the expanded calendar is reached
+    // via the expand button. SmartPanel resizes reactively when these change.
+    property bool compact: true
+    property real contentPreferredWidth: compact ? Math.round(440 * Style.uiScaleRatio) : 920 * Style.uiScaleRatio
+    property real contentPreferredHeight: compact ? (compactCol.implicitHeight + Style.marginL * 2) : 680 * Style.uiScaleRatio
     anchors.fill: parent
 
     // Timeline geometry (week/day hour grids).
@@ -63,7 +68,14 @@ Item {
 
     onVisibleChanged: {
         if (main) main.setPanelOpen(visible)
-        if (!visible) root.editing = false
+        if (visible) {
+            // Always open compact; ensure the month window is loaded so the mini
+            // calendar has events for its dots.
+            root.compact = true
+            if (main && main.viewMode !== "month") main.setView("month")
+        } else {
+            root.editing = false
+        }
     }
 
     function tr(k, fb) { return root.pluginApi ? root.pluginApi.tr(k) : fb }
@@ -382,6 +394,7 @@ Item {
     Item {
         id: panelContainer
         anchors.fill: parent
+        visible: !root.compact
 
         ColumnLayout {
             anchors.fill: parent
@@ -424,6 +437,7 @@ Item {
                             anchors.bottomMargin: Style.marginXS
                             spacing: Style.marginXS
 
+                            NIconButton { icon: "minimize"; tooltipText: root.tr("compact.back", "Compact view"); onClicked: { root.compact = true; if (root.main) root.main.setView("month") } }
                             NIconButton { icon: "chevron-left"; tooltipText: root.tr("panel.prev", "Previous"); onClicked: if (root.main) root.main.goPrev() }
                             NIconButton { icon: "chevron-right"; tooltipText: root.tr("panel.next", "Next"); onClicked: if (root.main) root.main.goNext() }
                             NButton { text: root.tr("panel.today", "Today"); onClicked: if (root.main) root.main.goToday() }
@@ -493,6 +507,164 @@ Item {
             anchors.fill: parent
             active: root.cardEditing
             sourceComponent: cardEditorComp
+        }
+    }
+
+    // ====================================================================== //
+    //  Compact (Clock-like) view: colored header + mini month + weather
+    // ====================================================================== //
+    Item {
+        id: compactContainer
+        anchors.fill: parent
+        visible: root.compact
+
+        ColumnLayout {
+            id: compactCol
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Style.marginL
+            spacing: Style.marginM
+
+            // Reused Noctalia card: colored date/month/year + clock.
+            CalendarHeaderCard {
+                Layout.fillWidth: true
+            }
+
+            // Custom mini month grid (dots = calsync events).
+            NBox {
+                forceOpaque: true
+                Layout.fillWidth: true
+                implicitHeight: miniCol.implicitHeight + Style.marginM * 2
+
+                ColumnLayout {
+                    id: miniCol
+                    anchors.fill: parent
+                    anchors.margins: Style.marginM
+                    spacing: Style.marginXS
+
+                    // Nav row: month/year label + prev/today/next + expand.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginXS
+
+                        NText {
+                            text: root.main ? Qt.formatDateTime(root.main.selectedDate, "MMMM yyyy").toUpperCase() : ""
+                            pointSize: Style.fontSizeM
+                            font.weight: Style.fontWeightBold
+                            color: Color.mOnSurface
+                        }
+                        NDivider { Layout.fillWidth: true }
+                        NIconButton { icon: "chevron-left"; tooltipText: root.tr("panel.prev", "Previous"); onClicked: if (root.main) root.main.goPrev() }
+                        NIconButton { icon: "calendar"; tooltipText: root.tr("panel.today", "Today"); onClicked: if (root.main) root.main.goToday() }
+                        NIconButton { icon: "chevron-right"; tooltipText: root.tr("panel.next", "Next"); onClicked: if (root.main) root.main.goNext() }
+                        NIconButton { icon: "expand"; tooltipText: root.tr("compact.openFull", "Open full calendar"); onClicked: root.compact = false }
+                    }
+
+                    // Weekday header.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Repeater {
+                            model: root.weekdayNames()
+                            delegate: NText {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: modelData
+                                pointSize: Style.fontSizeXS
+                                color: Color.mOnSurfaceVariant
+                            }
+                        }
+                    }
+
+                    // 7-col, 6-week grid.
+                    GridLayout {
+                        id: miniGrid
+                        Layout.fillWidth: true
+                        columns: 7
+                        rowSpacing: Style.marginXXS
+                        columnSpacing: Style.marginXXS
+
+                        property var gridStart: root.main ? root.main.startOfWeek(root.main.startOfMonth(root.main.selectedDate)) : new Date()
+
+                        Repeater {
+                            model: 42
+                            delegate: Item {
+                                id: miniCell
+                                required property int index
+                                Layout.fillWidth: true
+                                implicitHeight: Style.baseWidgetSize * 0.9
+
+                                property var day: root.main ? root.main.addDays(miniGrid.gridStart, index) : new Date()
+                                property bool inMonth: root.main && day.getMonth() === root.main.selectedDate.getMonth()
+                                property bool isToday: root.main && root.main.sameDay(day, new Date())
+                                property var dayEvents: root.main ? root.main.eventsOnDay(day) : []
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: Style.baseWidgetSize * 0.9
+                                    height: Style.baseWidgetSize * 0.9
+                                    radius: Style.radiusM
+                                    color: miniCell.isToday ? Color.mSecondary
+                                                            : (cellMA.containsMouse ? Color.mHover : "transparent")
+                                    Behavior on color { ColorAnimation { duration: 100 } }
+
+                                    NText {
+                                        anchors.centerIn: parent
+                                        text: miniCell.day.getDate()
+                                        pointSize: Style.fontSizeM
+                                        font.weight: miniCell.isToday ? Style.fontWeightBold : Style.fontWeightMedium
+                                        color: miniCell.isToday ? Color.mOnSecondary
+                                                               : (miniCell.inMonth ? Color.mOnSurface : Color.mOnSurfaceVariant)
+                                        opacity: miniCell.inMonth ? 1.0 : 0.4
+                                    }
+
+                                    // Event dots (calsync per-source colors).
+                                    Row {
+                                        visible: miniCell.dayEvents.length > 0
+                                        spacing: 2
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottom: parent.bottom
+                                        anchors.bottomMargin: Style.marginXXS
+                                        Repeater {
+                                            model: Math.min(miniCell.dayEvents.length, 3)
+                                            delegate: Rectangle {
+                                                required property int index
+                                                width: 4
+                                                height: 4
+                                                radius: Style.radiusXXS
+                                                color: miniCell.isToday ? Color.mOnSecondary : miniCell.dayEvents[index].color
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: cellMA
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            if (root.main) {
+                                                root.main.selectedDate = miniCell.day
+                                                root.main.setView("day")
+                                                root.compact = false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Reused Noctalia card: current weather + 5-day forecast.
+            WeatherCard {
+                Layout.fillWidth: true
+                forecastDays: 5
+                showLocation: false
+            }
         }
     }
 

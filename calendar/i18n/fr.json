@@ -7,6 +7,10 @@
         "refresh": "Rafraîchir",
         "settings": "Paramètres"
     },
+    "compact": {
+        "openFull": "Ouvrir le calendrier complet",
+        "back": "Vue compacte"
+    },
     "panel": {
         "today": "Aujourd'hui",
         "month": "Mois",
