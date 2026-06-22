@@ -96,6 +96,12 @@
         "priority": "Priorité",
         "progress": "Avancement",
         "due": "Échéance (AAAA-MM-JJ)",
+        "dueLabel": "Échéance",
+        "dueOverdue": "En retard",
+        "dueToday": "Aujourd'hui",
+        "dueTomorrow": "Demain",
+        "dueIn": "Dans",
+        "dueDaysShort": "j",
         "columnName": "Nom de la colonne",
         "synced": "✓ Tasks",
         "syncTasks": "Sync Tasks"

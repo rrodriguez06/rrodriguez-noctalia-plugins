@@ -96,6 +96,12 @@
         "priority": "Priority",
         "progress": "Progress",
         "due": "Due (YYYY-MM-DD)",
+        "dueLabel": "Due date",
+        "dueOverdue": "Overdue",
+        "dueToday": "Today",
+        "dueTomorrow": "Tomorrow",
+        "dueIn": "In",
+        "dueDaysShort": "d",
         "columnName": "Column name",
         "synced": "✓ Tasks",
         "syncTasks": "Sync Tasks"

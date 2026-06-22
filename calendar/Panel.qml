@@ -76,7 +76,8 @@ Item {
     property string cdNotes: ""
     property string cdPriority: "normal"
     property int cdProgress: 0
-    property string cdDue: ""
+    property string cdDueDate: ""
+    property string cdDueTime: ""
     property string cdColumn: ""
 
     // Add-column overlay state.
@@ -431,10 +432,79 @@ Item {
         return root.boardColumns().map(function (c) { return { "key": c.id, "name": c.name } })
     }
 
+    // Cheap per-column accent colour (cycles theme colours by position) — gives the
+    // kanban lanes visual identity without a backend per-column colour field.
+    function columnAccent(i) {
+        var palette = [Color.mPrimary, Color.mSecondary, Color.mTertiary]
+        return palette[((i % palette.length) + palette.length) % palette.length]
+    }
+
     function priorityColor(p) {
         if (p === "high") return Color.mError
         if (p === "low") return Color.mOnSurfaceVariant
         return Color.mPrimary
+    }
+
+    // ── Due-date helpers ─────────────────────────────────────────────────────
+    // Parse a card "due" (YYYY-MM-DD or RFC3339) into a Date, or null.
+    function parseDue(due) {
+        if (!due) return null
+        var d
+        if (due.length === 10 && due.charAt(4) === "-")
+            d = new Date(Number(due.slice(0, 4)), Number(due.slice(5, 7)) - 1, Number(due.slice(8, 10)))
+        else
+            d = new Date(due)
+        return (d && !isNaN(d.getTime())) ? d : null
+    }
+
+    // True when the due string carries a time-of-day (RFC3339), not just a date.
+    function dueHasTime(due) { return !!due && due.length > 10 }
+
+    // Whole-day delta from today (negative = past, 0 = today, 1 = tomorrow).
+    function dueDayDelta(due) {
+        var d = root.parseDue(due)
+        if (!d) return null
+        var a = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+        var now = new Date()
+        var b = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        return Math.round((a.getTime() - b.getTime()) / 86400000)
+    }
+
+    // Relative human label for an échéance ("En retard", "Aujourd'hui", "Demain",
+    // "Dans N j", or a dd/MM date), with the time appended when the due carries one.
+    function dueLabel(due) {
+        var dd = root.dueDayDelta(due)
+        if (dd === null) return ""
+        var t = root.dueHasTime(due) ? " " + Qt.formatDateTime(root.parseDue(due), "hh:mm") : ""
+        if (dd < 0) return root.tr("board.dueOverdue", "Overdue") + t
+        if (dd === 0) return root.tr("board.dueToday", "Today") + t
+        if (dd === 1) return root.tr("board.dueTomorrow", "Tomorrow") + t
+        if (dd < 7) return root.tr("board.dueIn", "In") + " " + dd + " " + root.tr("board.dueDaysShort", "d") + t
+        return Qt.formatDate(root.parseDue(due), "dd/MM") + t
+    }
+
+    function dueColor(due) {
+        var dd = root.dueDayDelta(due)
+        if (dd === null) return Color.mOnSurfaceVariant
+        if (dd < 0) return Color.mError
+        if (dd <= 1) return Color.mSecondary
+        return Color.mOnSurfaceVariant
+    }
+
+    // Split a stored due into editor parts; recombine on save.
+    function dueToParts(due) {
+        if (!due) return { "date": "", "time": "" }
+        if (due.length === 10) return { "date": due, "time": "" }
+        var d = root.parseDue(due)
+        if (!d) return { "date": due, "time": "" }
+        return { "date": Qt.formatDate(d, "yyyy-MM-dd"), "time": Qt.formatDateTime(d, "hh:mm") }
+    }
+    function partsToDue(date, time) {
+        if (!date) return ""
+        if (!time) return date
+        var d = new Date(date + "T" + time + ":00")
+        if (isNaN(d.getTime())) return date // malformed time → keep the date only
+        return d.toISOString()
     }
 
     function openNewCard(colId) {
@@ -443,7 +513,8 @@ Item {
         root.cdNotes = ""
         root.cdPriority = "normal"
         root.cdProgress = 0
-        root.cdDue = ""
+        root.cdDueDate = ""
+        root.cdDueTime = ""
         var cols = root.boardColumns()
         root.cdColumn = colId || (cols.length ? cols[0].id : "")
         root.cardEditing = true
@@ -455,19 +526,22 @@ Item {
         root.cdNotes = card.notes || ""
         root.cdPriority = card.priority || "normal"
         root.cdProgress = card.progress || 0
-        root.cdDue = card.due || ""
+        var parts = root.dueToParts(card.due || "")
+        root.cdDueDate = parts.date
+        root.cdDueTime = parts.time
         root.cdColumn = card.column
         root.cardEditing = true
     }
 
     function saveCard() {
         if (!root.main) return
+        var due = root.partsToDue(root.cdDueDate, root.cdDueTime)
         if (root.cdId === "") {
             root.main.addCard(root.cdTitle, { "column": root.cdColumn, "notes": root.cdNotes,
-                "priority": root.cdPriority, "progress": root.cdProgress, "due": root.cdDue })
+                "priority": root.cdPriority, "progress": root.cdProgress, "due": due })
         } else {
             root.main.updateCard(root.cdId, { "title": root.cdTitle, "notes": root.cdNotes,
-                "priority": root.cdPriority, "progress": root.cdProgress, "due": root.cdDue, "column": root.cdColumn })
+                "priority": root.cdPriority, "progress": root.cdProgress, "due": due, "column": root.cdColumn })
         }
         root.cardEditing = false
     }
@@ -2089,6 +2163,8 @@ Item {
             property real grabDY: 0
             property real dragW: 200
             property int hoverCol: -1
+            property int dropOrderVal: -1
+            property string dropBeforeId: "" // id of card to insert before; "" = append at end
 
             function startDrag(card, item, gx, gy) {
                 var tl = item.mapToItem(boardRoot, 0, 0)
@@ -2104,18 +2180,21 @@ Item {
                 boardRoot.dragX = gx - boardRoot.grabDX
                 boardRoot.dragY = gy - boardRoot.grabDY
                 boardRoot.hoverCol = boardRoot.columnAt(gx, gy)
+                var d = boardRoot.computeDrop(boardRoot.hoverCol, gy)
+                boardRoot.dropOrderVal = d.order
+                boardRoot.dropBeforeId = d.beforeId
             }
             function endDrag() {
                 var ci = boardRoot.hoverCol
                 var cols = root.boardColumns()
-                if (ci >= 0 && ci < cols.length && root.main) {
-                    var order = boardRoot.dropOrder(ci, boardRoot.dragY + boardRoot.grabDY)
-                    root.main.moveCard(boardRoot.dragId, cols[ci].id, order)
-                }
+                if (ci >= 0 && ci < cols.length && root.main)
+                    root.main.moveCard(boardRoot.dragId, cols[ci].id, boardRoot.dropOrderVal)
                 boardRoot.dragging = false
                 boardRoot.dragId = ""
                 boardRoot.dragCard = null
                 boardRoot.hoverCol = -1
+                boardRoot.dropOrderVal = -1
+                boardRoot.dropBeforeId = ""
             }
             function columnAt(gx, gy) {
                 for (var i = 0; i < colsRepeater.count; i++) {
@@ -2127,9 +2206,12 @@ Item {
                 }
                 return -1
             }
-            function dropOrder(colIndex, gy) {
+            // computeDrop returns the insertion {order, beforeId} for a pointer at gy
+            // in column colIndex. order excludes the dragged card; beforeId "" = end.
+            function computeDrop(colIndex, gy) {
+                if (colIndex < 0) return { "order": -1, "beforeId": "" }
                 var it = colsRepeater.itemAt(colIndex)
-                if (!it || !it.cardListRepeater) return -1
+                if (!it || !it.cardListRepeater) return { "order": -1, "beforeId": "" }
                 var rep = it.cardListRepeater
                 var idx = 0
                 for (var i = 0; i < rep.count; i++) {
@@ -2137,10 +2219,10 @@ Item {
                     if (!cardItem || !cardItem.cardData) continue
                     if (cardItem.cardData.id === boardRoot.dragId) continue
                     var c = cardItem.mapToItem(boardRoot, 0, cardItem.height / 2)
-                    if (gy < c.y) return idx
+                    if (gy < c.y) return { "order": idx, "beforeId": cardItem.cardData.id }
                     idx++
                 }
-                return idx
+                return { "order": idx, "beforeId": "" }
             }
 
             ColumnLayout {
@@ -2194,17 +2276,19 @@ Item {
                     Repeater {
                         id: colsRepeater
                         model: root.boardColumns()
-                        delegate: Rectangle {
+                        delegate: NBox {
                             id: colItem
                             required property int index
                             required property var modelData
                             property alias cardListRepeater: cardsRep
+                            property int cardCount: root.cardsIn(colItem.modelData.id).length
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            forceOpaque: true
+                            color: Color.mSurfaceVariant
                             radius: Style.radiusM
-                            color: Color.mSurface
-                            border.width: (boardRoot.dragging && boardRoot.hoverCol === index) ? 2 : 1
-                            border.color: (boardRoot.dragging && boardRoot.hoverCol === index) ? Color.mPrimary : Color.mOutline
+                            border.width: (boardRoot.dragging && boardRoot.hoverCol === index) ? 2 : Style.borderS
+                            border.color: (boardRoot.dragging && boardRoot.hoverCol === index) ? Color.mPrimary : Style.boxBorderColor
 
                             ColumnLayout {
                                 anchors.fill: parent
@@ -2215,17 +2299,31 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: Style.marginXS
+                                    Rectangle {
+                                        implicitWidth: 8; implicitHeight: 8; radius: 4
+                                        color: root.columnAccent(colItem.index)
+                                    }
                                     NText {
                                         text: colItem.modelData.name
                                         pointSize: Style.fontSizeM
+                                        font.weight: Style.fontWeightBold
                                         color: Color.mOnSurface
                                         elide: Text.ElideRight
                                         Layout.fillWidth: true
                                     }
-                                    NText {
-                                        text: root.cardsIn(colItem.modelData.id).length
-                                        pointSize: Style.fontSizeXS
-                                        color: Color.mOnSurfaceVariant
+                                    // count pill
+                                    Rectangle {
+                                        implicitWidth: cntTxt.implicitWidth + Style.marginS
+                                        implicitHeight: cntTxt.implicitHeight + 2
+                                        radius: height / 2
+                                        color: Qt.rgba(root.columnAccent(colItem.index).r, root.columnAccent(colItem.index).g, root.columnAccent(colItem.index).b, 0.18)
+                                        NText {
+                                            id: cntTxt
+                                            anchors.centerIn: parent
+                                            text: colItem.cardCount
+                                            pointSize: Style.fontSizeXS
+                                            color: root.columnAccent(colItem.index)
+                                        }
                                     }
                                     NIconButton {
                                         baseSize: Math.round(Style.baseWidgetSize * 0.7)
@@ -2235,7 +2333,7 @@ Item {
                                     }
                                     NIconButton {
                                         baseSize: Math.round(Style.baseWidgetSize * 0.7)
-                                        visible: root.cardsIn(colItem.modelData.id).length === 0 && root.boardColumns().length > 1
+                                        visible: colItem.cardCount === 0 && root.boardColumns().length > 1
                                         icon: "trash"
                                         tooltipText: root.tr("board.rmColumn", "Remove empty column")
                                         onClicked: if (root.main) root.main.rmColumn(colItem.modelData.id)
@@ -2266,14 +2364,29 @@ Item {
                                                 Layout.fillWidth: true
                                                 implicitHeight: cardCol.implicitHeight + Style.marginS * 2
                                                 radius: Style.radiusS
-                                                color: Color.mSurfaceVariant
+                                                color: cardMa.containsMouse ? Color.mHover : Color.mSurface
                                                 opacity: (boardRoot.dragId === modelData.id) ? 0.3 : 1.0
+                                                Behavior on color { ColorAnimation { duration: 90 } }
+
+                                                // drop indicator: insertion line above this card
+                                                Rectangle {
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    anchors.bottom: parent.top
+                                                    anchors.bottomMargin: Math.round(Style.marginXS / 2)
+                                                    height: 2
+                                                    radius: 1
+                                                    color: Color.mPrimary
+                                                    visible: boardRoot.dragging && boardRoot.hoverCol === colItem.index
+                                                             && boardRoot.dropBeforeId === cardItem.modelData.id
+                                                }
 
                                                 // priority accent
                                                 Rectangle {
                                                     width: 3
-                                                    height: parent.height
-                                                    radius: 1
+                                                    height: parent.height - Style.marginS
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    radius: 1.5
                                                     color: root.priorityColor(cardItem.modelData.priority)
                                                 }
 
@@ -2281,8 +2394,8 @@ Item {
                                                     id: cardCol
                                                     anchors.fill: parent
                                                     anchors.margins: Style.marginS
-                                                    anchors.leftMargin: Style.marginS + 4
-                                                    spacing: 3
+                                                    anchors.leftMargin: Style.marginS + 5
+                                                    spacing: 4
 
                                                     NText {
                                                         Layout.fillWidth: true
@@ -2300,25 +2413,41 @@ Item {
                                                         visible: cardItem.modelData.progress > 0
                                                         height: 4
                                                         radius: 2
-                                                        color: Color.mSurface
+                                                        color: Color.mSurfaceVariant
                                                         Rectangle {
-                                                            width: parent.width * (cardItem.modelData.progress / 100)
+                                                            width: parent.width * (Math.max(0, Math.min(100, cardItem.modelData.progress)) / 100)
                                                             height: parent.height
                                                             radius: 2
                                                             color: root.priorityColor(cardItem.modelData.priority)
                                                         }
                                                     }
 
-                                                    // due + sync indicator
+                                                    // meta row: due chip (relative, overdue-coloured) + sync indicator
                                                     RowLayout {
                                                         Layout.fillWidth: true
                                                         spacing: Style.marginXS
                                                         visible: !!cardItem.modelData.due || !!cardItem.modelData.googleTaskId
-                                                        NText {
+                                                        Rectangle {
                                                             visible: !!cardItem.modelData.due
-                                                            text: "⏱ " + (cardItem.modelData.due || "")
-                                                            pointSize: Style.fontSizeXS
-                                                            color: Color.mOnSurfaceVariant
+                                                            implicitWidth: dueRow.implicitWidth + Style.marginXS * 2
+                                                            implicitHeight: dueRow.implicitHeight + 2
+                                                            radius: height / 2
+                                                            color: Qt.rgba(root.dueColor(cardItem.modelData.due).r, root.dueColor(cardItem.modelData.due).g, root.dueColor(cardItem.modelData.due).b, 0.15)
+                                                            RowLayout {
+                                                                id: dueRow
+                                                                anchors.centerIn: parent
+                                                                spacing: 2
+                                                                NText {
+                                                                    text: "⏱"
+                                                                    pointSize: Style.fontSizeXS
+                                                                    color: root.dueColor(cardItem.modelData.due)
+                                                                }
+                                                                NText {
+                                                                    text: root.dueLabel(cardItem.modelData.due)
+                                                                    pointSize: Style.fontSizeXS
+                                                                    color: root.dueColor(cardItem.modelData.due)
+                                                                }
+                                                            }
                                                         }
                                                         Item { Layout.fillWidth: true }
                                                         NText {
@@ -2331,7 +2460,9 @@ Item {
                                                 }
 
                                                 MouseArea {
+                                                    id: cardMa
                                                     anchors.fill: parent
+                                                    hoverEnabled: true
                                                     preventStealing: true
                                                     property real pgx: 0
                                                     property real pgy: 0
@@ -2360,6 +2491,16 @@ Item {
                                                     }
                                                 }
                                             }
+                                        }
+
+                                        // end-of-list drop indicator (append at the bottom of this column)
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 2
+                                            radius: 1
+                                            color: Color.mPrimary
+                                            visible: boardRoot.dragging && boardRoot.hoverCol === colItem.index
+                                                     && boardRoot.dropBeforeId === ""
                                         }
                                     }
                                 }
@@ -2422,13 +2563,15 @@ Item {
                         Layout.fillWidth: true
                         text: root.cdTitle
                         placeholderText: root.tr("board.title", "Title")
-                        onEditingFinished: root.cdTitle = text
+                        // Live capture: clicking Save doesn't blur the field, so
+                        // onEditingFinished would drop the last edit (known Noctalia gotcha).
+                        onTextChanged: if (text !== root.cdTitle) root.cdTitle = text
                     }
                     NTextInput {
                         Layout.fillWidth: true
                         text: root.cdNotes
                         placeholderText: root.tr("board.notes", "Notes")
-                        onEditingFinished: root.cdNotes = text
+                        onTextChanged: if (text !== root.cdNotes) root.cdNotes = text
                     }
 
                     RowLayout {
@@ -2474,11 +2617,31 @@ Item {
                         }
                     }
 
-                    NTextInput {
+                    // Échéance (date + heure optionnelle), comme l'éditeur d'event.
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: root.cdDue
-                        placeholderText: root.tr("board.due", "Due (YYYY-MM-DD)")
-                        onEditingFinished: root.cdDue = text
+                        spacing: Style.marginXXS
+                        NText {
+                            text: root.tr("board.dueLabel", "Due date")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginS
+                            NTextInput {
+                                Layout.fillWidth: true
+                                text: root.cdDueDate
+                                placeholderText: "YYYY-MM-DD"
+                                onTextChanged: if (text !== root.cdDueDate) root.cdDueDate = text
+                            }
+                            NTextInput {
+                                Layout.preferredWidth: 90 * Style.uiScaleRatio
+                                text: root.cdDueTime
+                                placeholderText: "HH:MM"
+                                onTextChanged: if (text !== root.cdDueTime) root.cdDueTime = text
+                            }
+                        }
                     }
 
                     RowLayout {
@@ -2537,7 +2700,7 @@ Item {
                         Layout.fillWidth: true
                         text: root.cgName
                         placeholderText: root.tr("board.columnName", "Column name")
-                        onEditingFinished: root.cgName = text
+                        onTextChanged: if (text !== root.cgName) root.cgName = text
                     }
                     RowLayout {
                         Layout.fillWidth: true

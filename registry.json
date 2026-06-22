@@ -63,7 +63,7 @@
     {
       "id": "calendar",
       "name": "Calendar",
-      "version": "0.5.3",
+      "version": "0.6.0",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Vrai wrapper Google Calendar : fusionne tes comptes (pro + perso), vues mois/semaine/jour + compacte, création d'événements récurrents, invités & RSVP (présent / peut-être / absent), gestion des comptes et choix des calendriers synchronisés, kanban local, et synchronisation live. S'appuie sur le backend `calsync` (CLI + daemon).",
