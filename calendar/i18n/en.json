@@ -9,7 +9,12 @@
     },
     "compact": {
         "openFull": "Open full calendar",
-        "back": "Compact view"
+        "back": "Compact view",
+        "upcomingToday": "Today",
+        "upcomingTomorrow": "Tomorrow",
+        "allDay": "All day",
+        "join": "Join",
+        "more": "more"
     },
     "panel": {
         "today": "Today",

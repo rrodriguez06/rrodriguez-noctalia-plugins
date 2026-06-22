@@ -9,7 +9,12 @@
     },
     "compact": {
         "openFull": "Ouvrir le calendrier complet",
-        "back": "Vue compacte"
+        "back": "Vue compacte",
+        "upcomingToday": "Aujourd'hui",
+        "upcomingTomorrow": "Demain",
+        "allDay": "Journée",
+        "join": "Rejoindre",
+        "more": "de plus"
     },
     "panel": {
         "today": "Aujourd'hui",

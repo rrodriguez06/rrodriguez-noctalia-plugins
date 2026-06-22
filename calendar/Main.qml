@@ -28,6 +28,10 @@ Item {
     property int todayCount: 0
     property string nextLabel: ""
 
+    // Quick-access agenda: events for today + tomorrow (loaded independently of
+    // the grid window so it stays correct when navigating months in compact view).
+    property var agenda: []
+
     // Local kanban board ({ columns: [...], cards: [...] }).
     property var board: ({ "columns": [], "cards": [] })
     property string boardError: ""
@@ -142,6 +146,53 @@ Item {
         eventsProc.running = true
     }
 
+    // ── Quick-access agenda (today + tomorrow) ───────────────────────────────
+    Process {
+        id: agendaProc
+        stdout: StdioCollector {
+            onStreamFinished: root._onAgendaLoaded(this.text || "")
+        }
+    }
+
+    function reloadAgenda() {
+        var from = root.startOfDay(new Date())
+        var to = root.addDays(from, 2) // today + tomorrow
+        agendaProc.running = false
+        agendaProc.command = [root.bin(), "events", "list",
+                              "--from", from.toISOString(),
+                              "--to", to.toISOString()]
+        agendaProc.running = true
+    }
+
+    function _onAgendaLoaded(text) {
+        var parsed
+        try { parsed = JSON.parse(text) } catch (e) { return }
+        if (parsed && parsed.ok === false) return
+        var list = (parsed && parsed.events) ? parsed.events : []
+        root.agenda = root._mapEvents(list)
+    }
+
+    // Still-relevant events for quick access: today's ongoing/upcoming ones, or
+    // tomorrow's if today is over. Returns { tomorrow: bool, events: [...] }.
+    function upcomingAgenda() {
+        var now = new Date()
+        var todayEnd = root.addDays(root.startOfDay(now), 1)
+        var src = root.agenda
+        var todays = []
+        for (var i = 0; i < src.length; i++)
+            if (src[i].start < todayEnd && src[i].end > now) todays.push(src[i])
+        if (todays.length > 0) {
+            todays.sort(function (a, b) { return a.start - b.start })
+            return { "tomorrow": false, "events": todays }
+        }
+        var tomEnd = root.addDays(todayEnd, 1)
+        var toms = []
+        for (var j = 0; j < src.length; j++)
+            if (src[j].start < tomEnd && src[j].end > todayEnd) toms.push(src[j])
+        toms.sort(function (a, b) { return a.start - b.start })
+        return { "tomorrow": true, "events": toms }
+    }
+
     function _onEventsLoaded(text) {
         root.isLoading = false
         var parsed
@@ -157,6 +208,12 @@ Item {
         root.authError = false
         root.lastError = ""
         var list = (parsed && parsed.events) ? parsed.events : []
+        root.events = root._mapEvents(list)
+        root._recomputeBadge()
+    }
+
+    // Map raw calsync event JSON to the UI event model (filtering hidden sources).
+    function _mapEvents(list) {
         var out = []
         for (var i = 0; i < list.length; i++) {
             var e = list[i]
@@ -178,8 +235,7 @@ Item {
                 "end": e.allDay ? root._parseDate(e.end) : new Date(e.end)
             })
         }
-        root.events = out
-        root._recomputeBadge()
+        return out
     }
 
     function _parseDate(s) {
@@ -386,7 +442,7 @@ Item {
         id: reloadDebounce
         interval: 400
         repeat: false
-        onTriggered: root.reloadWindow()
+        onTriggered: { root.reloadWindow(); root.reloadAgenda() }
     }
 
     function _onWatchLine(line) {
@@ -429,6 +485,7 @@ Item {
         if (open) {
             root._loadCalendarsFromSettings()
             root.reloadWindow()
+            root.reloadAgenda()
             root.reloadBoard()
             if (root.settings()?.syncOnOpen ?? true) root.syncNow()
             root.startWatch()

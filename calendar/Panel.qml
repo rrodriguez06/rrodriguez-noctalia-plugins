@@ -5,6 +5,7 @@ import qs.Commons
 import qs.Widgets
 import qs.Modules.Cards
 import qs.Services.Location
+import qs.Services.UI
 
 // Calendar panel: header (period nav + view switch + actions), month/week/day
 // views, and an event editor overlay. All data comes from main (the CLI bridge).
@@ -19,6 +20,8 @@ Item {
     // Compact (Clock-like) view opens by default; the expanded calendar is reached
     // via the expand button. SmartPanel resizes reactively when these change.
     property bool compact: true
+    // Bumped every minute so the compact "upcoming" agenda re-evaluates as time passes.
+    property int agendaTick: 0
     property real contentPreferredWidth: compact ? Math.round(440 * Style.uiScaleRatio) : 920 * Style.uiScaleRatio
     property real contentPreferredHeight: compact ? (compactCol.implicitHeight + Style.marginL * 2) : 680 * Style.uiScaleRatio
     anchors.fill: parent
@@ -79,6 +82,21 @@ Item {
     }
 
     function tr(k, fb) { return root.pluginApi ? root.pluginApi.tr(k) : fb }
+
+    // Tooltip text for a compact-calendar day: weekday header + up to a few events.
+    function dayTooltipText(day, evs) {
+        var head = Qt.formatDateTime(day, "dddd d MMMM")
+        if (!evs || evs.length === 0) return head
+        var lines = [head]
+        var n = Math.min(evs.length, 6)
+        for (var i = 0; i < n; i++) {
+            var e = evs[i]
+            var t = e.allDay ? root.tr("compact.allDay", "All day") : Qt.formatDateTime(e.start, "hh:mm")
+            lines.push(t + "  " + e.summary)
+        }
+        if (evs.length > n) lines.push("+" + (evs.length - n) + "…")
+        return lines.join("\n")
+    }
 
     function periodLabel() {
         if (!main) return ""
@@ -645,7 +663,13 @@ Item {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
+                                        onEntered: {
+                                            if (miniCell.dayEvents.length > 0)
+                                                TooltipService.show(miniCell, root.dayTooltipText(miniCell.day, miniCell.dayEvents))
+                                        }
+                                        onExited: TooltipService.hide(miniCell)
                                         onClicked: {
+                                            TooltipService.hide(miniCell)
                                             if (root.main) {
                                                 root.main.selectedDate = miniCell.day
                                                 root.main.setView("day")
@@ -660,12 +684,122 @@ Item {
                 }
             }
 
+            // Upcoming events (today's remaining, else tomorrow's) — quick access.
+            NBox {
+                id: upcomingBox
+                forceOpaque: true
+                Layout.fillWidth: true
+                readonly property var upco: {
+                    root.agendaTick // re-evaluate as time passes
+                    return root.main ? root.main.upcomingAgenda() : ({ "tomorrow": false, "events": [] })
+                }
+                readonly property var items: upcomingBox.upco.events
+                visible: upcomingBox.items.length > 0
+                implicitHeight: upCol.implicitHeight + Style.marginM * 2
+
+                ColumnLayout {
+                    id: upCol
+                    anchors.fill: parent
+                    anchors.margins: Style.marginM
+                    spacing: Style.marginXS
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginXS
+                        NIcon { icon: "clock"; pointSize: Style.fontSizeS; color: Color.mPrimary }
+                        NText {
+                            Layout.fillWidth: true
+                            text: upcomingBox.upco.tomorrow ? root.tr("compact.upcomingTomorrow", "Tomorrow")
+                                                            : root.tr("compact.upcomingToday", "Today")
+                            pointSize: Style.fontSizeXS
+                            font.weight: Style.fontWeightBold
+                            color: Color.mOnSurfaceVariant
+                        }
+                    }
+
+                    Repeater {
+                        model: Math.min(upcomingBox.items.length, 3)
+                        delegate: Rectangle {
+                            id: upRow
+                            required property int index
+                            readonly property var ev: upcomingBox.items[index]
+                            Layout.fillWidth: true
+                            implicitHeight: upRowL.implicitHeight + Style.marginXS
+                            radius: Style.radiusXS
+                            color: upRowMA.containsMouse ? Color.mHover : "transparent"
+                            Behavior on color { ColorAnimation { duration: 100 } }
+
+                            // Below the content so the join button keeps its own clicks.
+                            MouseArea {
+                                id: upRowMA
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.openInspect(upRow.ev)
+                            }
+
+                            RowLayout {
+                                id: upRowL
+                                anchors.fill: parent
+                                anchors.leftMargin: Style.marginXS
+                                anchors.rightMargin: Style.marginXS
+                                spacing: Style.marginS
+
+                                Rectangle {
+                                    Layout.preferredWidth: 3
+                                    Layout.fillHeight: true
+                                    Layout.topMargin: 2
+                                    Layout.bottomMargin: 2
+                                    radius: 1
+                                    color: upRow.ev.color
+                                }
+                                NText {
+                                    Layout.preferredWidth: 42 * Style.uiScaleRatio
+                                    text: upRow.ev.allDay ? root.tr("compact.allDay", "All day") : Qt.formatDateTime(upRow.ev.start, "hh:mm")
+                                    pointSize: Style.fontSizeXS
+                                    font.weight: Style.fontWeightBold
+                                    color: Color.mOnSurface
+                                }
+                                NText {
+                                    Layout.fillWidth: true
+                                    text: upRow.ev.summary
+                                    pointSize: Style.fontSizeXS
+                                    color: Color.mOnSurface
+                                    elide: Text.ElideRight
+                                }
+                                NIconButton {
+                                    visible: upRow.ev.meetLink !== ""
+                                    icon: "video"
+                                    tooltipText: root.tr("compact.join", "Join")
+                                    onClicked: Qt.openUrlExternally(upRow.ev.meetLink)
+                                }
+                            }
+                        }
+                    }
+
+                    NText {
+                        visible: upcomingBox.items.length > 3
+                        text: "+" + (upcomingBox.items.length - 3) + " " + root.tr("compact.more", "more")
+                        pointSize: Style.fontSizeXS
+                        color: Color.mOnSurfaceVariant
+                    }
+                }
+            }
+
             // Reused Noctalia card: current weather + 5-day forecast.
             WeatherCard {
                 Layout.fillWidth: true
                 forecastDays: 5
                 showLocation: false
             }
+        }
+
+        // Refresh the "upcoming" agenda once a minute so passed events drop off.
+        Timer {
+            interval: 60000
+            repeat: true
+            running: root.visible && root.compact
+            onTriggered: root.agendaTick++
         }
     }
 
