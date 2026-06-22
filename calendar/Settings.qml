@@ -26,6 +26,12 @@ ColumnLayout {
     property bool discovering: false
     property bool authRunning: false
 
+    // Reminder settings (mirrored from calsync config; written via set-reminders).
+    property bool remEnabled: true
+    property bool remBefore: true
+    property int remLeadMinutes: 10
+    property bool remAtStart: true
+
     // General settings (mirrored from pluginSettings).
     property string defaultView: "month"
     property int weekStartsOn: 1
@@ -82,6 +88,13 @@ ColumnLayout {
                 var parsed
                 try { parsed = JSON.parse(this.text || "{}") } catch (e) { return }
                 root.configCals = (parsed && parsed.calendars) ? parsed.calendars : []
+                var rem = (parsed && parsed.reminders) ? parsed.reminders : {}
+                root.remEnabled = rem.enabled !== false
+                var lead = rem.leadMinutes || []
+                root.remAtStart = lead.indexOf(0) >= 0
+                var before = lead.filter(function (m) { return m > 0 })
+                root.remBefore = before.length > 0
+                if (before.length > 0) root.remLeadMinutes = before[0]
             }
         }
     }
@@ -208,6 +221,19 @@ ColumnLayout {
 
     function accountCalendars(account) {
         return root.discovered.filter(function (c) { return (c.account || "") === account })
+    }
+
+    // ── Reminders ────────────────────────────────────────────────────────────
+    function buildLeadCSV() {
+        var arr = []
+        if (root.remBefore && root.remLeadMinutes > 0) arr.push(root.remLeadMinutes)
+        if (root.remAtStart) arr.push(0)
+        return arr.join(",")
+    }
+    function saveReminders() {
+        root.cfgRun([root.bin(), "config", "set-reminders",
+                     "--enabled=" + (root.remEnabled ? "true" : "false"),
+                     "--lead", root.buildLeadCSV()])
     }
 
     // ── Tab bar ────────────────────────────────────────────────────────────────
@@ -352,6 +378,52 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: root.activeTab === "general"
         spacing: Style.marginM
+
+        NLabel {
+            label: root.tr("settings.reminders", "Reminders")
+            description: root.tr("settings.remindersDesc", "Desktop notifications before and when events start.")
+        }
+        NToggle {
+            Layout.fillWidth: true
+            label: root.tr("settings.remEnabled", "Enable event reminders")
+            checked: root.remEnabled
+            onToggled: (v) => { root.remEnabled = v; root.saveReminders() }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.marginS
+            enabled: root.remEnabled
+            NToggle {
+                label: root.tr("settings.remBefore", "Before the event")
+                checked: root.remBefore
+                onToggled: (v) => { root.remBefore = v; root.saveReminders() }
+            }
+            NTextInput {
+                Layout.preferredWidth: 60 * Style.uiScaleRatio
+                text: String(root.remLeadMinutes)
+                onEditingFinished: {
+                    var n = parseInt(text)
+                    root.remLeadMinutes = (isNaN(n) || n < 1) ? 1 : n
+                    root.saveReminders()
+                }
+            }
+            NText {
+                text: root.tr("settings.remMinutes", "min before")
+                pointSize: Style.fontSizeS
+                color: Color.mOnSurfaceVariant
+                Layout.alignment: Qt.AlignVCenter
+            }
+            Item { Layout.fillWidth: true }
+        }
+        NToggle {
+            Layout.fillWidth: true
+            enabled: root.remEnabled
+            label: root.tr("settings.remAtStart", "When the event starts")
+            checked: root.remAtStart
+            onToggled: (v) => { root.remAtStart = v; root.saveReminders() }
+        }
+
+        NDivider { Layout.fillWidth: true; Layout.topMargin: Style.marginXS; Layout.bottomMargin: Style.marginXS }
 
         NLabel { label: root.tr("settings.view", "View") }
 
