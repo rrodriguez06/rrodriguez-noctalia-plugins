@@ -307,6 +307,17 @@ Item {
         root.insEvent = ev
         root.inspecting = true
     }
+    // From the compact view: expand to the full panel on the default view (the
+    // inspect overlay only lives in the full panel) and jump the calendar to the
+    // event's day, then open the read-only details directly.
+    function openInspectFull(ev) {
+        root.compact = false
+        if (root.main) {
+            if (ev && ev.start) root.main.selectedDate = ev.start
+            root.main.setView(root.main.defaultView())
+        }
+        root.openInspect(ev)
+    }
     function editFromInspect() {
         var ev = root.insEvent
         root.inspecting = false
@@ -796,7 +807,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.openInspect(upRow.ev)
+                                onClicked: root.openInspectFull(upRow.ev)
                             }
 
                             RowLayout {
