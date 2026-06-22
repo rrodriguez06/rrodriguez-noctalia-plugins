@@ -815,7 +815,7 @@ Item {
                         implicitHeight: wh.implicitHeight + Style.marginXS * 2
                         radius: Style.radiusS
                         color: hdrRect.isToday ? Color.mPrimary
-                                               : (hdrMA.containsMouse ? Color.mHover : Color.mSurface)
+                                               : (hdrMA.containsMouse ? Color.mHover : "transparent")
                         Behavior on color { ColorAnimation { duration: 100 } }
                         ColumnLayout {
                             id: wh
