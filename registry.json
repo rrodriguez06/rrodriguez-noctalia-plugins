@@ -63,14 +63,14 @@
     {
       "id": "calendar",
       "name": "Calendar",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Vrai wrapper Google Calendar : fusionne tes comptes (pro + perso), vues mois/semaine/jour + compacte, création d'événements récurrents, invités & RSVP (présent / peut-être / absent), gestion des comptes et choix des calendriers synchronisés, kanban local, et synchronisation live. S'appuie sur le backend `calsync` (CLI + daemon).",
       "tags": ["Bar", "Panel", "ControlCenter", "Utility"],
       "official": false,
       "minNoctaliaVersion": "4.5.0",
-      "lastUpdated": "2026-06-22T18:00:00Z",
+      "lastUpdated": "2026-06-22T20:00:00Z",
       "entryPoints": {
         "main": "Main.qml",
         "barWidget": "BarWidget.qml",

@@ -48,6 +48,9 @@ Item {
     property bool edRecurring: false
     property string edInstanceStart: ""
     property string edScope: "this" // this | following | all
+    // Scope-choice dialog (shown when saving/deleting a recurring event).
+    property bool scopeAsking: false
+    property string scopeMode: "delete" // delete | save
     // Recurrence builder (creation). edRepeatType "none" → non-recurring.
     property string edRepeatType: "none" // none | daily | weekly | monthly | yearly
     property int edRepeatInterval: 1
@@ -379,6 +382,36 @@ Item {
                 { "key": "all", "name": root.tr("editor.scopeAll", "All events") }]
     }
 
+    // Save/Delete handlers. For recurring events a scope-choice dialog is shown
+    // (this / following / all), mirroring Google Calendar; single events act directly.
+    function requestSave() {
+        if (root.edId !== "" && root.edRecurring) {
+            root.scopeMode = "save"
+            root.scopeAsking = true
+        } else {
+            root.saveEditor()
+        }
+    }
+    function requestDelete() {
+        if (root.edRecurring) {
+            root.scopeMode = "delete"
+            root.scopeAsking = true
+        } else {
+            if (root.main) root.main.deleteEvent(root.edId)
+            root.editing = false
+        }
+    }
+    function applyScope(scope) {
+        root.edScope = scope
+        root.scopeAsking = false
+        if (root.scopeMode === "delete") {
+            if (root.main) root.main.deleteEvent(root.edId, scope, root.edInstanceStart)
+            root.editing = false
+        } else {
+            root.saveEditor()
+        }
+    }
+
     // ── Kanban helpers ───────────────────────────────────────────────────────
     function boardColumns() { return (root.main && root.main.board && root.main.board.columns) ? root.main.board.columns : [] }
 
@@ -658,6 +691,11 @@ Item {
             anchors.fill: parent
             active: root.editing
             sourceComponent: editorComp
+        }
+        Loader {
+            anchors.fill: parent
+            active: root.scopeAsking
+            sourceComponent: scopeComp
         }
         Loader {
             anchors.fill: parent
@@ -1694,6 +1732,67 @@ Item {
     }
 
     // ====================================================================== //
+    //  Recurring-event scope dialog (this / following / all) — shown on
+    //  save/delete of a recurring event, like Google Calendar.
+    // ====================================================================== //
+    Component {
+        id: scopeComp
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: root.scopeAsking = false // click outside cancels
+
+            NBox {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - Style.marginL * 2, 380 * Style.uiScaleRatio)
+                implicitHeight: scopeCol.implicitHeight + Style.marginL * 2
+                MouseArea { anchors.fill: parent; onClicked: {} } // swallow inside clicks
+
+                ColumnLayout {
+                    id: scopeCol
+                    anchors.fill: parent
+                    anchors.margins: Style.marginL
+                    spacing: Style.marginS
+
+                    NText {
+                        Layout.fillWidth: true
+                        text: root.scopeMode === "delete"
+                              ? root.tr("editor.deleteRecurringTitle", "Delete recurring event")
+                              : root.tr("editor.editRecurringTitle", "Edit recurring event")
+                        pointSize: Style.fontSizeL
+                        color: Color.mOnSurface
+                        wrapMode: Text.WordWrap
+                    }
+                    NButton {
+                        Layout.fillWidth: true
+                        text: root.tr("editor.scopeThis", "This event")
+                        outlined: true
+                        onClicked: root.applyScope("this")
+                    }
+                    NButton {
+                        Layout.fillWidth: true
+                        text: root.tr("editor.scopeFollowing", "This and following")
+                        outlined: true
+                        onClicked: root.applyScope("following")
+                    }
+                    NButton {
+                        Layout.fillWidth: true
+                        text: root.tr("editor.scopeAll", "All events")
+                        outlined: true
+                        onClicked: root.applyScope("all")
+                    }
+                    NButton {
+                        Layout.fillWidth: true
+                        text: root.tr("editor.cancel", "Cancel")
+                        backgroundColor: Color.mError
+                        onClicked: root.scopeAsking = false
+                    }
+                }
+            }
+        }
+    }
+
+    // ====================================================================== //
     //  Event editor overlay
     // ====================================================================== //
     Component {
@@ -1720,22 +1819,19 @@ Item {
                         color: Color.mOnSurface
                     }
 
-                    // Recurring-event scope (this / following / all).
-                    ColumnLayout {
+                    // Recurring badge — the scope (this/following/all) is asked at
+                    // save/delete time via a dialog, like Google Calendar.
+                    RowLayout {
                         Layout.fillWidth: true
                         visible: root.edRecurring && root.edId !== ""
-                        spacing: Style.marginXXS
+                        spacing: Style.marginXS
+                        NIcon { icon: "refresh"; color: Color.mSecondary; pointSize: Style.fontSizeS }
                         NText {
                             text: root.tr("editor.recurring", "Recurring event")
                             pointSize: Style.fontSizeXS
                             color: Color.mOnSurfaceVariant
                         }
-                        NComboBox {
-                            Layout.fillWidth: true
-                            model: root.scopeModel()
-                            currentKey: root.edScope
-                            onSelected: (key) => root.edScope = key
-                        }
+                        Item { Layout.fillWidth: true }
                     }
 
                     NTextInput {
@@ -1945,15 +2041,7 @@ Item {
                             visible: root.edId !== ""
                             text: root.tr("editor.delete", "Delete")
                             icon: "trash"
-                            onClicked: {
-                                if (root.main) {
-                                    if (root.edRecurring)
-                                        root.main.deleteEvent(root.edId, root.edScope, root.edInstanceStart)
-                                    else
-                                        root.main.deleteEvent(root.edId)
-                                }
-                                root.editing = false
-                            }
+                            onClicked: root.requestDelete()
                         }
                         Item { Layout.fillWidth: true }
                         NButton {
@@ -1963,7 +2051,7 @@ Item {
                         NButton {
                             text: root.tr("editor.save", "Save")
                             icon: "check"
-                            onClicked: root.saveEditor()
+                            onClicked: root.requestSave()
                         }
                     }
                 }

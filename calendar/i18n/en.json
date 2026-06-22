@@ -43,6 +43,8 @@
         "scopeThis": "This event",
         "scopeFollowing": "This and following",
         "scopeAll": "All events",
+        "deleteRecurringTitle": "Delete recurring event",
+        "editRecurringTitle": "Edit recurring event",
         "calendar": "Calendar",
         "repeat": "Repeat",
         "repeatNever": "Does not repeat",
