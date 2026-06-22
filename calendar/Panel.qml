@@ -1742,10 +1742,20 @@ Item {
             hoverEnabled: true
             onClicked: root.scopeAsking = false // click outside cancels
 
+            // Dim scrim so the dialog clearly stands out from the editor behind it.
+            Rectangle {
+                anchors.fill: parent
+                color: Qt.rgba(0, 0, 0, 0.55)
+            }
+
             NBox {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - Style.marginL * 2, 380 * Style.uiScaleRatio)
                 implicitHeight: scopeCol.implicitHeight + Style.marginL * 2
+                forceOpaque: true
+                color: Color.mSurface
+                border.color: Color.mPrimary
+                border.width: Math.max(1, Style.borderS)
                 MouseArea { anchors.fill: parent; onClicked: {} } // swallow inside clicks
 
                 ColumnLayout {
@@ -1838,7 +1848,9 @@ Item {
                         Layout.fillWidth: true
                         text: root.edSummary
                         placeholderText: root.tr("editor.summary", "Title")
-                        onEditingFinished: root.edSummary = text
+                        // Capture live so the value isn't lost if Save is clicked
+                        // while the field still has focus (no editingFinished fires).
+                        onTextChanged: if (text !== root.edSummary) root.edSummary = text
                     }
 
                     NToggle {
@@ -1855,14 +1867,14 @@ Item {
                             Layout.fillWidth: true
                             text: root.edStartDate
                             placeholderText: "YYYY-MM-DD"
-                            onEditingFinished: root.edStartDate = text
+                            onTextChanged: if (text !== root.edStartDate) root.edStartDate = text
                         }
                         NTextInput {
                             Layout.preferredWidth: 90 * Style.uiScaleRatio
                             visible: !root.edAllDay
                             text: root.edStartTime
                             placeholderText: "HH:MM"
-                            onEditingFinished: root.edStartTime = text
+                            onTextChanged: if (text !== root.edStartTime) root.edStartTime = text
                         }
                     }
                     RowLayout {
@@ -1872,14 +1884,14 @@ Item {
                             Layout.fillWidth: true
                             text: root.edEndDate
                             placeholderText: "YYYY-MM-DD"
-                            onEditingFinished: root.edEndDate = text
+                            onTextChanged: if (text !== root.edEndDate) root.edEndDate = text
                         }
                         NTextInput {
                             Layout.preferredWidth: 90 * Style.uiScaleRatio
                             visible: !root.edAllDay
                             text: root.edEndTime
                             placeholderText: "HH:MM"
-                            onEditingFinished: root.edEndTime = text
+                            onTextChanged: if (text !== root.edEndTime) root.edEndTime = text
                         }
                     }
 
@@ -1887,13 +1899,13 @@ Item {
                         Layout.fillWidth: true
                         text: root.edLocation
                         placeholderText: root.tr("editor.location", "Location")
-                        onEditingFinished: root.edLocation = text
+                        onTextChanged: if (text !== root.edLocation) root.edLocation = text
                     }
                     NTextInput {
                         Layout.fillWidth: true
                         text: root.edDesc
                         placeholderText: root.tr("editor.desc", "Description")
-                        onEditingFinished: root.edDesc = text
+                        onTextChanged: if (text !== root.edDesc) root.edDesc = text
                     }
 
                     // Target calendar (creation only — events stay in their calendar).
