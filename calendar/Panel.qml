@@ -561,7 +561,7 @@ Item {
                         NIconButton { icon: "expand"; tooltipText: root.tr("compact.openFull", "Open full calendar"); onClicked: root.compact = false }
                     }
 
-                    // Weekday header.
+                    // Weekday header (2-letter uppercase, bold, accent — like the Clock).
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 0
@@ -571,9 +571,10 @@ Item {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
-                                text: modelData
-                                pointSize: Style.fontSizeXS
-                                color: Color.mOnSurfaceVariant
+                                text: String(modelData).substring(0, 2).toUpperCase()
+                                pointSize: Style.fontSizeS
+                                font.weight: Style.fontWeightBold
+                                color: Color.mPrimary
                             }
                         }
                     }
