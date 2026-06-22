@@ -320,44 +320,74 @@ Item {
         flick.contentY = Math.max(0, Math.min(y, maxY))
     }
 
+    // Compact segmented switcher (used for Calendar/Board and Month/Week/Day).
+    component SegControl: Rectangle {
+        id: seg
+        property var options: [] // [{ key, label }]
+        property string current: ""
+        signal picked(string key)
+        implicitWidth: segRow.implicitWidth + 6
+        implicitHeight: segRow.implicitHeight + 6
+        radius: Style.radiusM
+        color: Color.mSurfaceVariant
+        border.width: Style.borderS
+        border.color: Style.boxBorderColor
+
+        RowLayout {
+            id: segRow
+            anchors.centerIn: parent
+            spacing: 3
+            Repeater {
+                model: seg.options
+                delegate: Rectangle {
+                    id: segItem
+                    required property var modelData
+                    property bool active: seg.current === modelData.key
+                    radius: Style.radiusS
+                    implicitWidth: segLbl.implicitWidth + Style.marginM
+                    implicitHeight: segLbl.implicitHeight + Style.marginXS
+                    color: segItem.active ? Color.mPrimary
+                                          : (segItemMA.containsMouse ? Color.mHover : "transparent")
+                    Behavior on color { ColorAnimation { duration: 100 } }
+                    NText {
+                        id: segLbl
+                        anchors.centerIn: parent
+                        text: segItem.modelData.label
+                        pointSize: Style.fontSizeS
+                        color: segItem.active ? Color.mOnPrimary : Color.mOnSurface
+                    }
+                    MouseArea {
+                        id: segItemMA
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: seg.picked(segItem.modelData.key)
+                    }
+                }
+            }
+        }
+    }
+
     Item {
         id: panelContainer
         anchors.fill: parent
 
-        // Opaque panel background (so the calendar reads as a solid surface rather
-        // than letting the shell/blur show through).
-        Rectangle {
-            anchors.fill: parent
-            color: Color.mSurface
-            radius: Style.radiusL
-        }
-
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: Style.marginL
-            spacing: Style.marginM
+            anchors.margins: Style.marginM
+            spacing: Style.marginS
             opacity: (root.editing || root.cardEditing || root.columnEditing || root.inspecting) ? 0.15 : 1.0
 
-            // ── Top-level tabs (Calendar / Board) ─────────────────────────────
-            NTabBar {
-                id: topTabs
+            // ── Tab switcher (Calendar / Board) — compact segmented control ──
+            RowLayout {
                 Layout.fillWidth: true
-                distributeEvenly: true
-                // NTabBar owns currentIndex (updated on click); mirror it to activeTab
-                // which drives the StackLayout. (Don't bind currentIndex back, to avoid
-                // fighting the bar's internal click handling — matches noctalia-deck.)
-                onCurrentIndexChanged: root.activeTab = currentIndex
-                Repeater {
-                    model: [{ "icon": "calendar", "key": "calendar" },
-                            { "icon": "layout-dashboard", "key": "board" }]
-                    NTabButton {
-                        icon: modelData.icon
-                        text: root.tr("tabs." + modelData.key, modelData.key)
-                        pointSize: Style.fontSizeM
-                        tabIndex: index
-                        checked: topTabs.currentIndex === index
-                    }
+                SegControl {
+                    options: [{ "key": "calendar", "label": root.tr("tabs.calendar", "Calendar") },
+                              { "key": "board", "label": root.tr("tabs.board", "Board") }]
+                    current: root.activeTab === 1 ? "board" : "calendar"
+                    onPicked: key => root.activeTab = (key === "board" ? 1 : 0)
                 }
+                Item { Layout.fillWidth: true }
             }
 
             StackLayout {
@@ -367,54 +397,42 @@ Item {
 
                 // ── Calendar tab ──────────────────────────────────────────────
                 ColumnLayout {
-                    spacing: Style.marginM
+                    spacing: Style.marginS
 
-                    // Header (period nav + view switch + actions)
-                    RowLayout {
+                    // Header island (nav + view switch + actions)
+                    NBox {
+                        forceOpaque: true
                         Layout.fillWidth: true
-                        spacing: Style.marginXS
+                        implicitHeight: headerRow.implicitHeight + Style.marginS * 2
+                        RowLayout {
+                            id: headerRow
+                            anchors.fill: parent
+                            anchors.leftMargin: Style.marginM
+                            anchors.rightMargin: Style.marginM
+                            anchors.topMargin: Style.marginXS
+                            anchors.bottomMargin: Style.marginXS
+                            spacing: Style.marginXS
 
-                        NIconButton { icon: "chevron-left"; onClicked: if (root.main) root.main.goPrev() }
-                        NIconButton { icon: "chevron-right"; onClicked: if (root.main) root.main.goNext() }
-                        NButton {
-                            text: root.tr("panel.today", "Today")
-                            onClicked: if (root.main) root.main.goToday()
-                        }
-                        NText {
-                            Layout.leftMargin: Style.marginS
-                            text: root.periodLabel()
-                            pointSize: Style.fontSizeL
-                            color: Color.mOnSurface
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        NButton {
-                            text: root.tr("panel.month", "Month")
-                            enabled: !root.main || root.main.viewMode !== "month"
-                            onClicked: if (root.main) root.main.setView("month")
-                        }
-                        NButton {
-                            text: root.tr("panel.week", "Week")
-                            enabled: !root.main || root.main.viewMode !== "week"
-                            onClicked: if (root.main) root.main.setView("week")
-                        }
-                        NButton {
-                            text: root.tr("panel.day", "Day")
-                            enabled: !root.main || root.main.viewMode !== "day"
-                            onClicked: if (root.main) root.main.setView("day")
-                        }
-
-                        NIconButton {
-                            Layout.leftMargin: Style.marginS
-                            icon: "refresh"
-                            tooltipText: root.tr("panel.refresh", "Refresh")
-                            onClicked: if (root.main) root.main.syncNow()
-                        }
-                        NIconButton {
-                            icon: "plus"
-                            tooltipText: root.tr("panel.add", "New event")
-                            onClicked: root.openNew(null)
+                            NIconButton { icon: "chevron-left"; tooltipText: root.tr("panel.prev", "Previous"); onClicked: if (root.main) root.main.goPrev() }
+                            NIconButton { icon: "chevron-right"; tooltipText: root.tr("panel.next", "Next"); onClicked: if (root.main) root.main.goNext() }
+                            NButton { text: root.tr("panel.today", "Today"); onClicked: if (root.main) root.main.goToday() }
+                            NText {
+                                Layout.leftMargin: Style.marginXS
+                                Layout.fillWidth: true
+                                text: root.periodLabel()
+                                pointSize: Style.fontSizeL
+                                color: Color.mOnSurface
+                                elide: Text.ElideRight
+                            }
+                            SegControl {
+                                options: [{ "key": "month", "label": root.tr("panel.month", "Month") },
+                                          { "key": "week", "label": root.tr("panel.week", "Week") },
+                                          { "key": "day", "label": root.tr("panel.day", "Day") }]
+                                current: root.main ? root.main.viewMode : "month"
+                                onPicked: key => { if (root.main) root.main.setView(key) }
+                            }
+                            NIconButton { Layout.leftMargin: Style.marginXS; icon: "refresh"; tooltipText: root.tr("panel.refresh", "Refresh"); onClicked: if (root.main) root.main.syncNow() }
+                            NIconButton { icon: "plus"; tooltipText: root.tr("panel.add", "New event"); onClicked: root.openNew(null) }
                         }
                     }
 
@@ -427,13 +445,18 @@ Item {
                         pointSize: Style.fontSizeS
                     }
 
-                    // Body
-                    Loader {
+                    // Calendar body island
+                    NBox {
+                        forceOpaque: true
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        sourceComponent: !root.main ? null
-                                         : (root.main.viewMode === "week" ? weekComp
-                                            : (root.main.viewMode === "day" ? dayComp : monthComp))
+                        Loader {
+                            anchors.fill: parent
+                            anchors.margins: Style.marginS
+                            sourceComponent: !root.main ? null
+                                             : (root.main.viewMode === "week" ? weekComp
+                                                : (root.main.viewMode === "day" ? dayComp : monthComp))
+                        }
                     }
                 }
 
@@ -508,13 +531,20 @@ Item {
             onTriggered: col.nowFrac = root.hourFrac(new Date())
         }
 
+        // subtle today-column tint (week view) to anchor the eye on today
+        Rectangle {
+            visible: col.showNow
+            anchors.fill: parent
+            color: Qt.rgba(Color.mPrimary.r, Color.mPrimary.g, Color.mPrimary.b, 0.06)
+        }
+
         // left divider (week view: separate day columns)
         Rectangle {
             visible: col.showLeftDivider
             x: 0
             width: 1
             height: col.height
-            color: Color.mSurfaceVariant
+            color: Color.mOutline
         }
 
         // hour grid lines
@@ -525,7 +555,7 @@ Item {
                 y: index * root.hourPx + root.topPad
                 width: col.width
                 height: 1
-                color: Color.mSurfaceVariant
+                color: Color.mOutline
             }
         }
 
@@ -671,7 +701,7 @@ Item {
                         property bool hovered: cellMA.containsMouse
 
                         color: hovered ? Color.mHover
-                                       : (inMonth ? Color.mSurfaceVariant : "transparent")
+                                       : (inMonth ? Color.mSurface : "transparent")
                         border.width: isToday ? 2 : (hovered ? 1 : 0)
                         border.color: isToday ? Color.mPrimary : Color.mOutline
                         Behavior on color { ColorAnimation { duration: 100 } }
@@ -785,7 +815,7 @@ Item {
                         implicitHeight: wh.implicitHeight + Style.marginXS * 2
                         radius: Style.radiusS
                         color: hdrRect.isToday ? Color.mPrimary
-                                               : (hdrMA.containsMouse ? Color.mHover : Color.mSurfaceVariant)
+                                               : (hdrMA.containsMouse ? Color.mHover : Color.mSurface)
                         Behavior on color { ColorAnimation { duration: 100 } }
                         ColumnLayout {
                             id: wh
@@ -948,6 +978,7 @@ Item {
         id: inspectComp
         MouseArea {
             anchors.fill: parent
+            hoverEnabled: true // capture hover so the calendar underneath stops reacting
             onClicked: root.inspecting = false // click outside closes
 
             NBox {
@@ -1026,10 +1057,13 @@ Item {
                         NText {
                             id: descText
                             width: parent.width
+                            // Google event descriptions are HTML — render them formatted.
+                            richTextEnabled: root.insEvent && !!root.insEvent.description
                             text: (root.insEvent && root.insEvent.description) ? root.insEvent.description : root.tr("inspect.noDesc", "No description")
                             pointSize: Style.fontSizeS
                             color: (root.insEvent && root.insEvent.description) ? Color.mOnSurface : Color.mOnSurfaceVariant
                             wrapMode: Text.WordWrap
+                            onLinkActivated: link => Qt.openUrlExternally(link)
                         }
                     }
 
@@ -1060,6 +1094,7 @@ Item {
         id: editorComp
         MouseArea {
             anchors.fill: parent
+            hoverEnabled: true // capture hover so the calendar underneath stops reacting
             onClicked: {} // swallow clicks behind the dialog
 
             NBox {
@@ -1528,6 +1563,7 @@ Item {
         id: cardEditorComp
         MouseArea {
             anchors.fill: parent
+            hoverEnabled: true // capture hover so the calendar underneath stops reacting
             onClicked: {} // swallow clicks behind the dialog
 
             NBox {
@@ -1643,6 +1679,7 @@ Item {
         id: columnEditorComp
         MouseArea {
             anchors.fill: parent
+            hoverEnabled: true
             onClicked: {}
 
             NBox {

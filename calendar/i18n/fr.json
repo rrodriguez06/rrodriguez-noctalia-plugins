@@ -12,6 +12,8 @@
         "month": "Mois",
         "week": "Semaine",
         "day": "Jour",
+        "prev": "Précédent",
+        "next": "Suivant",
         "refresh": "Rafraîchir",
         "add": "Nouvel événement",
         "allDay": "Journée",
