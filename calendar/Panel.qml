@@ -79,10 +79,29 @@ Item {
     property string cdDueDate: ""
     property string cdDueTime: ""
     property string cdColumn: ""
+    property var cdLabels: [] // selected label ids for the card being edited
+    // Scheduling (time-blocking) editor state.
+    property string cdSchedDate: ""
+    property string cdSchedTime: "09:00"
+    property int cdSchedDurMin: 60
+    property bool cdSchedReal: false      // false = local block, true = real Google event
+    property string cdSchedCalendar: ""   // target calendar id for real-event mode
+    // Recurrence ("none" | daily | weekly | monthly) + interval (every N).
+    property string cdRecurFreq: "none"
+    property int cdRecurInterval: 1
 
     // Add-column overlay state.
     property bool columnEditing: false
     property string cgName: ""
+
+    // Label manager overlay + inline create state.
+    property bool labelMgrOpen: false
+    property string lmName: ""
+
+    // Board filter state (text search + label ids + priority key; "" = any).
+    property string filterText: ""
+    property var filterLabels: []
+    property string filterPriority: ""
 
     onVisibleChanged: {
         if (main) main.setPanelOpen(visible)
@@ -418,8 +437,77 @@ Item {
 
     function cardsIn(colId) {
         var cards = (root.main && root.main.board && root.main.board.cards) ? root.main.board.cards : []
-        return cards.filter(function (c) { return c.column === colId })
+        return cards.filter(function (c) { return c.column === colId && root.cardMatchesFilter(c) })
                     .sort(function (a, b) { return (a.order || 0) - (b.order || 0) })
+    }
+
+    // ── Filter helpers (board search/label/priority) ─────────────────────────
+    function filterActive() {
+        return root.filterText !== "" || (root.filterLabels && root.filterLabels.length > 0) || root.filterPriority !== ""
+    }
+    function cardMatchesFilter(c) {
+        if (root.filterText !== "") {
+            var hay = ((c.title || "") + " " + (c.notes || "")).toLowerCase()
+            if (hay.indexOf(root.filterText.toLowerCase()) === -1) return false
+        }
+        if (root.filterPriority !== "" && (c.priority || "normal") !== root.filterPriority) return false
+        if (root.filterLabels && root.filterLabels.length > 0) {
+            var cl = c.labels || []
+            for (var i = 0; i < root.filterLabels.length; i++)
+                if (cl.indexOf(root.filterLabels[i]) === -1) return false // AND across selected labels
+        }
+        return true
+    }
+    function toggleFilterLabel(id) {
+        var arr = (root.filterLabels || []).slice()
+        var k = arr.indexOf(id)
+        if (k >= 0) arr.splice(k, 1); else arr.push(id)
+        root.filterLabels = arr
+    }
+    function clearFilters() { root.filterText = ""; root.filterLabels = []; root.filterPriority = "" }
+
+    // ── Label + checklist helpers ────────────────────────────────────────────
+    function boardLabels() { return (root.main && root.main.board && root.main.board.labels) ? root.main.board.labels : [] }
+    function labelById(id) {
+        var ls = root.boardLabels()
+        for (var i = 0; i < ls.length; i++) if (ls[i].id === id) return ls[i]
+        return null
+    }
+    // Resolve a label colour token ("primary"/"secondary"/"tertiary"/"error" or
+    // "#rrggbb") to a colour, so token-based labels follow the active theme.
+    function labelColor(token) {
+        if (!token) return Color.mPrimary
+        if (token.charAt(0) === "#") return token
+        switch (token) {
+        case "primary": return Color.mPrimary
+        case "secondary": return Color.mSecondary
+        case "tertiary": return Color.mTertiary
+        case "error": return Color.mError
+        }
+        return Color.mPrimary
+    }
+    // Next palette token to assign when creating a label (cycles by current count).
+    function nextLabelToken() {
+        var toks = ["primary", "secondary", "tertiary", "error"]
+        return toks[root.boardLabels().length % toks.length]
+    }
+    function cardById(id) {
+        var cs = (root.main && root.main.board && root.main.board.cards) ? root.main.board.cards : []
+        for (var i = 0; i < cs.length; i++) if (cs[i].id === id) return cs[i]
+        return null
+    }
+    function checklistDone(card) {
+        var cl = (card && card.checklist) ? card.checklist : []
+        var n = 0
+        for (var i = 0; i < cl.length; i++) if (cl[i].done) n++
+        return n
+    }
+    // Toggle a label id in the card-editor selection (cdLabels).
+    function toggleCdLabel(id) {
+        var arr = (root.cdLabels || []).slice()
+        var k = arr.indexOf(id)
+        if (k >= 0) arr.splice(k, 1); else arr.push(id)
+        root.cdLabels = arr
     }
 
     function priorityModel() {
@@ -515,6 +603,14 @@ Item {
         root.cdProgress = 0
         root.cdDueDate = ""
         root.cdDueTime = ""
+        root.cdLabels = []
+        root.cdSchedDate = ""
+        root.cdSchedTime = "09:00"
+        root.cdSchedDurMin = 60
+        root.cdSchedReal = false
+        root.cdSchedCalendar = ""
+        root.cdRecurFreq = "none"
+        root.cdRecurInterval = 1
         var cols = root.boardColumns()
         root.cdColumn = colId || (cols.length ? cols[0].id : "")
         root.cardEditing = true
@@ -529,6 +625,26 @@ Item {
         var parts = root.dueToParts(card.due || "")
         root.cdDueDate = parts.date
         root.cdDueTime = parts.time
+        root.cdLabels = (card.labels || []).slice()
+        // schedule prefill: from an existing local block, else sensible defaults
+        if (card.schedule && card.schedule.start) {
+            var sp = root.dueToParts(card.schedule.start)
+            root.cdSchedDate = sp.date
+            root.cdSchedTime = sp.time || "09:00"
+            var sd = new Date(card.schedule.start)
+            var ed = card.schedule.end ? new Date(card.schedule.end) : null
+            root.cdSchedDurMin = (ed && !isNaN(sd.getTime()) && !isNaN(ed.getTime()))
+                ? Math.max(15, Math.round((ed.getTime() - sd.getTime()) / 60000)) : 60
+            root.cdSchedReal = false
+        } else {
+            root.cdSchedReal = !!card.calendarEventId
+            root.cdSchedDate = root.cdDueDate || Qt.formatDate(new Date(), "yyyy-MM-dd")
+            root.cdSchedTime = "09:00"
+            root.cdSchedDurMin = 60
+        }
+        root.cdSchedCalendar = ""
+        root.cdRecurFreq = (card.recurrence && card.recurrence.freq) ? card.recurrence.freq : "none"
+        root.cdRecurInterval = (card.recurrence && card.recurrence.interval) ? card.recurrence.interval : 1
         root.cdColumn = card.column
         root.cardEditing = true
     }
@@ -536,19 +652,63 @@ Item {
     function saveCard() {
         if (!root.main) return
         var due = root.partsToDue(root.cdDueDate, root.cdDueTime)
+        var recur = root.cdRecurFreq === "none" ? "none" : (root.cdRecurFreq + ":" + root.cdRecurInterval)
         if (root.cdId === "") {
             root.main.addCard(root.cdTitle, { "column": root.cdColumn, "notes": root.cdNotes,
-                "priority": root.cdPriority, "progress": root.cdProgress, "due": due })
+                "priority": root.cdPriority, "progress": root.cdProgress, "due": due, "labels": root.cdLabels,
+                "recurrence": recur })
         } else {
             root.main.updateCard(root.cdId, { "title": root.cdTitle, "notes": root.cdNotes,
-                "priority": root.cdPriority, "progress": root.cdProgress, "due": due, "column": root.cdColumn })
+                "priority": root.cdPriority, "progress": root.cdProgress, "due": due, "column": root.cdColumn,
+                "labels": root.cdLabels, "recurrence": recur })
         }
         root.cardEditing = false
+    }
+
+    function recurModel() {
+        return [{ "key": "none", "name": root.tr("board.recurNone", "None") },
+                { "key": "daily", "name": root.tr("board.recurDaily", "Daily") },
+                { "key": "weekly", "name": root.tr("board.recurWeekly", "Weekly") },
+                { "key": "monthly", "name": root.tr("board.recurMonthly", "Monthly") }]
     }
 
     function deleteCard() {
         if (root.main && root.cdId !== "") root.main.rmCard(root.cdId)
         root.cardEditing = false
+    }
+
+    // Open a card's editor by id (used when clicking a task block / deadline on the
+    // calendar — works across tabs since the editor overlay sits above the stack).
+    function openCardById(id) {
+        var c = root.cardById(id)
+        if (c) root.openCard(c)
+    }
+
+    // ── Scheduling helpers (used by the card editor "Planifier" section) ──────
+    function schedStartISO() { return root.partsToDue(root.cdSchedDate, root.cdSchedTime) }
+    function schedEndISO() {
+        var s = root.schedStartISO()
+        if (!s || s.length <= 10) return "" // needs a real date+time
+        var d = new Date(s)
+        if (isNaN(d.getTime())) return ""
+        return new Date(d.getTime() + root.cdSchedDurMin * 60000).toISOString()
+    }
+    function applySchedule() {
+        if (!root.main || root.cdId === "") return
+        var s = root.schedStartISO(), e = root.schedEndISO()
+        if (!s || s.length <= 10 || !e) return // require both a date and a time
+        if (root.cdSchedReal) root.main.scheduleReal(root.cdId, s, e, root.cdSchedCalendar)
+        else root.main.scheduleLocal(root.cdId, s, e)
+    }
+    function applyUnschedule() { if (root.main && root.cdId !== "") root.main.unschedule(root.cdId) }
+    // "dd/MM hh:mm–hh:mm" label for an existing local block.
+    function schedBlockLabel(sched) {
+        if (!sched || !sched.start) return ""
+        var s = new Date(sched.start)
+        if (isNaN(s.getTime())) return ""
+        var lab = Qt.formatDateTime(s, "dd/MM hh:mm")
+        if (sched.end) { var e = new Date(sched.end); if (!isNaN(e.getTime())) lab += "–" + Qt.formatDateTime(e, "hh:mm") }
+        return lab
     }
 
     function timeRange(ev) {
@@ -1205,7 +1365,10 @@ Item {
                 id: evRect
                 required property var modelData
                 property var ev: modelData.ev
-                property color base: ev.color
+                property bool isTask: ev.kind === "taskBlock"
+                // For real events, the id of a task that scheduled them (else "").
+                property string linkedTaskId: (!evRect.isTask && root.main) ? root.main.eventLinkedTaskId(ev.id) : ""
+                property color base: evRect.isTask ? root.priorityColor(ev.priority) : ev.color
                 property real dayStartMs: (new Date(col.day.getFullYear(), col.day.getMonth(), col.day.getDate())).getTime()
                 property real sH: (ev.start.getTime() - dayStartMs) / 3600000
                 property real eH: (ev.end.getTime() - dayStartMs) / 3600000
@@ -1219,8 +1382,11 @@ Item {
                 y: (topH - col.startH) * root.hourPx + root.topPad
                 height: Math.max((botH - topH) * root.hourPx, 14)
                 radius: Style.radiusXS
-                color: Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, evRect.hovered ? 0.42 : 0.22)
-                border.width: evRect.hovered ? 1 : 0
+                // task blocks read as lighter/outlined so they don't masquerade as events
+                color: evRect.isTask
+                       ? Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, evRect.hovered ? 0.28 : 0.12)
+                       : Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, evRect.hovered ? 0.42 : 0.22)
+                border.width: (evRect.isTask || evRect.hovered) ? 1 : 0
                 border.color: evRect.base
                 Behavior on color { ColorAnimation { duration: 100 } }
 
@@ -1233,7 +1399,8 @@ Item {
                     spacing: 0
                     NText {
                         Layout.fillWidth: true
-                        text: evRect.ev.summary
+                        // ☑ marks task blocks and task-linked real events
+                        text: (evRect.isTask || evRect.linkedTaskId !== "" ? "☑ " : "") + evRect.ev.summary
                         pointSize: Style.fontSizeXS
                         color: Color.mOnSurface
                         elide: Text.ElideRight
@@ -1250,7 +1417,11 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.openInspect(evRect.ev)
+                    onClicked: {
+                        if (evRect.isTask) root.openCardById(evRect.ev.taskCardId)
+                        else if (evRect.linkedTaskId !== "") root.openCardById(evRect.linkedTaskId)
+                        else root.openInspect(evRect.ev)
+                    }
                 }
             }
         }
@@ -1312,6 +1483,7 @@ Item {
                         property bool inMonth: root.main && day.getMonth() === root.main.selectedDate.getMonth()
                         property bool isToday: root.main && root.main.sameDay(day, new Date())
                         property var dayEvents: root.main ? root.main.eventsOnDay(day) : []
+                        property var dueTasks: root.main ? root.main.tasksDueOnDay(day) : []
                         property bool hovered: cellMA.containsMouse
 
                         color: hovered ? Color.mHover
@@ -1380,6 +1552,28 @@ Item {
                                 color: Color.mOnSurfaceVariant
                             }
 
+                            // task deadline indicator (compact: first title + overflow count)
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: cell.dueTasks.length > 0
+                                spacing: 2
+                                property color base: cell.dueTasks.length > 0 ? root.dueColor(cell.dueTasks[0].due) : Color.mOnSurfaceVariant
+                                Rectangle { implicitWidth: 6; implicitHeight: 6; radius: 3; color: parent.base; Layout.alignment: Qt.AlignVCenter }
+                                NText {
+                                    Layout.fillWidth: true
+                                    text: (cell.dueTasks.length > 0 ? cell.dueTasks[0].title : "")
+                                          + (cell.dueTasks.length > 1 ? "  +" + (cell.dueTasks.length - 1) : "")
+                                    pointSize: Style.fontSizeXS
+                                    color: parent.base
+                                    elide: Text.ElideRight
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (cell.dueTasks.length > 0) root.openCardById(cell.dueTasks[0].cardId)
+                                }
+                            }
+
                             Item { Layout.fillHeight: true }
                         }
                     }
@@ -1406,10 +1600,20 @@ Item {
             }
             function timedFor(i) {
                 if (!root.main) return []
-                return root.main.eventsOnDay(root.main.addDays(weekWrap.weekStart, i)).filter(function (e) { return !e.allDay })
+                var day = root.main.addDays(weekWrap.weekStart, i)
+                var evs = root.main.eventsOnDay(day).filter(function (e) { return !e.allDay })
+                return evs.concat(root.main.taskBlocksOnDay(day)) // merge local task blocks into the grid
+            }
+            function dueFor(i) {
+                if (!root.main) return []
+                return root.main.tasksDueOnDay(root.main.addDays(weekWrap.weekStart, i))
             }
             function anyAllDay() {
                 for (var i = 0; i < 7; i++) if (allDayFor(i).length) return true
+                return false
+            }
+            function anyDue() {
+                for (var i = 0; i < 7; i++) if (dueFor(i).length) return true
                 return false
             }
 
@@ -1443,10 +1647,10 @@ Item {
                 }
             }
 
-            // All-day strip
+            // All-day strip (all-day events + task deadlines)
             RowLayout {
                 Layout.fillWidth: true
-                visible: weekWrap.anyAllDay()
+                visible: weekWrap.anyAllDay() || weekWrap.anyDue()
                 spacing: 0
                 Item { Layout.preferredWidth: root.gutterW }
                 Repeater {
@@ -1471,6 +1675,24 @@ Item {
                                 Behavior on color { ColorAnimation { duration: 100 } }
                                 NText { anchors.fill: parent; anchors.leftMargin: 4; verticalAlignment: Text.AlignVCenter; text: adChip.modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
                                 MouseArea { id: adChipMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openInspect(adChip.modelData) }
+                            }
+                        }
+                        // task deadline chips for this day
+                        Repeater {
+                            model: weekWrap.dueFor(adCol.index)
+                            delegate: Rectangle {
+                                id: adDue
+                                required property var modelData
+                                property color base: root.dueColor(modelData.due)
+                                Layout.fillWidth: true
+                                implicitHeight: 16
+                                radius: Style.radiusXS
+                                color: Qt.rgba(adDue.base.r, adDue.base.g, adDue.base.b, adDueMA.containsMouse ? 0.42 : 0.18)
+                                border.width: 1
+                                border.color: adDue.base
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                                NText { anchors.fill: parent; anchors.leftMargin: 4; verticalAlignment: Text.AlignVCenter; text: "⏱ " + adDue.modelData.title; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
+                                MouseArea { id: adDueMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openCardById(adDue.modelData.cardId) }
                             }
                         }
                     }
@@ -1520,14 +1742,18 @@ Item {
             spacing: Style.marginXS
             property var dayList: root.main ? root.main.eventsOnDay(root.main.selectedDate) : []
             property var allDayEvents: dayWrap.dayList.filter(function (e) { return e.allDay })
-            property var timed: dayWrap.dayList.filter(function (e) { return !e.allDay })
+            property var timed: {
+                var evs = dayWrap.dayList.filter(function (e) { return !e.allDay })
+                return root.main ? evs.concat(root.main.taskBlocksOnDay(root.main.selectedDate)) : evs
+            }
+            property var dueList: root.main ? root.main.tasksDueOnDay(root.main.selectedDate) : []
             property int sH: root.main ? root.main.dayStartHour() : 7
             property int eH: root.main ? root.main.dayEndHour() : 22
 
-            // All-day strip
+            // All-day strip (all-day events + task deadlines)
             RowLayout {
                 Layout.fillWidth: true
-                visible: dayWrap.allDayEvents.length > 0
+                visible: dayWrap.allDayEvents.length > 0 || dayWrap.dueList.length > 0
                 spacing: 0
                 Item { Layout.preferredWidth: root.gutterW }
                 ColumnLayout {
@@ -1552,6 +1778,30 @@ Item {
                                 NText { Layout.fillWidth: true; text: adRect.modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
                             }
                             MouseArea { id: adRectMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openInspect(adRect.modelData) }
+                        }
+                    }
+                    // task deadline chips
+                    Repeater {
+                        model: dayWrap.dueList
+                        delegate: Rectangle {
+                            id: dDue
+                            required property var modelData
+                            property color base: root.dueColor(modelData.due)
+                            Layout.fillWidth: true
+                            implicitHeight: 20
+                            radius: Style.radiusXS
+                            color: Qt.rgba(dDue.base.r, dDue.base.g, dDue.base.b, dDueMA.containsMouse ? 0.42 : 0.18)
+                            border.width: 1
+                            border.color: dDue.base
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                spacing: 4
+                                Rectangle { width: 3; Layout.fillHeight: true; radius: 1; color: dDue.base }
+                                NText { Layout.fillWidth: true; text: "⏱ " + dDue.modelData.title + " — " + root.dueLabel(dDue.modelData.due); pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
+                            }
+                            MouseArea { id: dDueMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openCardById(dDue.modelData.cardId) }
                         }
                     }
                 }
@@ -2229,19 +2479,24 @@ Item {
                 anchors.fill: parent
                 spacing: Style.marginS
 
-                // Board header: add-column + error
+                // Board header: search + actions + error
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Style.marginS
                     NText {
                         visible: root.main && root.main.boardError !== ""
-                        Layout.fillWidth: true
                         text: root.main ? root.main.boardError : ""
                         color: Color.mError
                         pointSize: Style.fontSizeXS
                         elide: Text.ElideRight
                     }
-                    Item { Layout.fillWidth: true; visible: !(root.main && root.main.boardError !== "") }
+                    NTextInput {
+                        Layout.fillWidth: true
+                        visible: root.boardColumns().length > 0
+                        text: root.filterText
+                        placeholderText: root.tr("board.search", "Search cards…")
+                        onTextChanged: if (text !== root.filterText) root.filterText = text
+                    }
                     NButton {
                         visible: root.main && root.main.tasksEnabled()
                         text: root.tr("board.syncTasks", "Sync Tasks")
@@ -2252,6 +2507,52 @@ Item {
                         text: root.tr("board.addColumn", "Add column")
                         icon: "plus"
                         onClicked: { root.cgName = ""; root.columnEditing = true }
+                    }
+                }
+
+                // Filter chips: priority + labels + clear
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    visible: root.boardColumns().length > 0 && (root.boardLabels().length > 0 || root.filterActive())
+                    Repeater {
+                        model: root.priorityModel()
+                        delegate: Rectangle {
+                            id: pchip
+                            required property var modelData
+                            property bool sel: root.filterPriority === modelData.key
+                            implicitWidth: pTxt.implicitWidth + Style.marginS * 2
+                            implicitHeight: pTxt.implicitHeight + Style.marginXS
+                            radius: height / 2
+                            color: pchip.sel ? Qt.rgba(root.priorityColor(modelData.key).r, root.priorityColor(modelData.key).g, root.priorityColor(modelData.key).b, 0.28) : Color.mSurfaceVariant
+                            border.width: pchip.sel ? 1 : 0
+                            border.color: root.priorityColor(modelData.key)
+                            NText { id: pTxt; anchors.centerIn: parent; text: pchip.modelData.name; pointSize: Style.fontSizeXS; color: pchip.sel ? root.priorityColor(pchip.modelData.key) : Color.mOnSurfaceVariant }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.filterPriority = (pchip.sel ? "" : pchip.modelData.key) }
+                        }
+                    }
+                    Rectangle { width: 1; implicitHeight: 16; color: Color.mOutline; visible: root.boardLabels().length > 0 }
+                    Repeater {
+                        model: root.boardLabels()
+                        delegate: Rectangle {
+                            id: lchip
+                            required property var modelData
+                            property bool sel: (root.filterLabels || []).indexOf(modelData.id) >= 0
+                            implicitWidth: lTxt.implicitWidth + Style.marginS * 2
+                            implicitHeight: lTxt.implicitHeight + Style.marginXS
+                            radius: height / 2
+                            color: lchip.sel ? Qt.rgba(root.labelColor(modelData.color).r, root.labelColor(modelData.color).g, root.labelColor(modelData.color).b, 0.30) : Color.mSurfaceVariant
+                            border.width: lchip.sel ? 1 : 0
+                            border.color: root.labelColor(modelData.color)
+                            NText { id: lTxt; anchors.centerIn: parent; text: lchip.modelData.name; pointSize: Style.fontSizeXS; color: lchip.sel ? root.labelColor(lchip.modelData.color) : Color.mOnSurfaceVariant }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleFilterLabel(lchip.modelData.id) }
+                        }
+                    }
+                    NButton {
+                        visible: root.filterActive()
+                        text: root.tr("board.clearFilters", "Clear")
+                        icon: "close"
+                        onClicked: root.clearFilters()
                     }
                 }
 
@@ -2397,6 +2698,32 @@ Item {
                                                     anchors.leftMargin: Style.marginS + 5
                                                     spacing: 4
 
+                                                    // label chips
+                                                    Flow {
+                                                        Layout.fillWidth: true
+                                                        spacing: 3
+                                                        visible: (cardItem.modelData.labels || []).length > 0
+                                                        Repeater {
+                                                            model: cardItem.modelData.labels || []
+                                                            delegate: Rectangle {
+                                                                required property var modelData
+                                                                property var lbl: root.labelById(modelData)
+                                                                visible: !!lbl
+                                                                implicitWidth: lblTxt.implicitWidth + Style.marginXS * 2
+                                                                implicitHeight: lblTxt.implicitHeight + 2
+                                                                radius: height / 2
+                                                                color: lbl ? Qt.rgba(root.labelColor(lbl.color).r, root.labelColor(lbl.color).g, root.labelColor(lbl.color).b, 0.22) : "transparent"
+                                                                NText {
+                                                                    id: lblTxt
+                                                                    anchors.centerIn: parent
+                                                                    text: parent.lbl ? parent.lbl.name : ""
+                                                                    pointSize: Style.fontSizeXS
+                                                                    color: parent.lbl ? root.labelColor(parent.lbl.color) : Color.mOnSurfaceVariant
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
                                                     NText {
                                                         Layout.fillWidth: true
                                                         text: cardItem.modelData.title
@@ -2422,11 +2749,11 @@ Item {
                                                         }
                                                     }
 
-                                                    // meta row: due chip (relative, overdue-coloured) + sync indicator
+                                                    // meta row: due chip (relative, overdue-coloured) + checklist + recurrence + sync indicator
                                                     RowLayout {
                                                         Layout.fillWidth: true
                                                         spacing: Style.marginXS
-                                                        visible: !!cardItem.modelData.due || !!cardItem.modelData.googleTaskId
+                                                        visible: !!cardItem.modelData.due || (cardItem.modelData.checklist || []).length > 0 || !!cardItem.modelData.recurrence || !!cardItem.modelData.schedule || !!cardItem.modelData.calendarEventId || !!cardItem.modelData.googleTaskId
                                                         Rectangle {
                                                             visible: !!cardItem.modelData.due
                                                             implicitWidth: dueRow.implicitWidth + Style.marginXS * 2
@@ -2448,6 +2775,27 @@ Item {
                                                                     color: root.dueColor(cardItem.modelData.due)
                                                                 }
                                                             }
+                                                        }
+                                                        // checklist badge "☑ done/total"
+                                                        NText {
+                                                            visible: (cardItem.modelData.checklist || []).length > 0
+                                                            text: "☑ " + root.checklistDone(cardItem.modelData) + "/" + (cardItem.modelData.checklist || []).length
+                                                            pointSize: Style.fontSizeXS
+                                                            color: Color.mOnSurfaceVariant
+                                                        }
+                                                        // scheduled badge (local block or linked event)
+                                                        NText {
+                                                            visible: !!cardItem.modelData.schedule || !!cardItem.modelData.calendarEventId
+                                                            text: "📅"
+                                                            pointSize: Style.fontSizeXS
+                                                            color: Color.mTertiary
+                                                        }
+                                                        // recurring badge
+                                                        NText {
+                                                            visible: !!cardItem.modelData.recurrence
+                                                            text: "🔁"
+                                                            pointSize: Style.fontSizeXS
+                                                            color: Color.mOnSurfaceVariant
                                                         }
                                                         Item { Layout.fillWidth: true }
                                                         NText {
@@ -2545,13 +2893,20 @@ Item {
             NBox {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - Style.marginL * 2, 460 * Style.uiScaleRatio)
-                implicitHeight: cform.implicitHeight + Style.marginL * 2
+                height: Math.min(cform.implicitHeight + Style.marginL * 2, parent.height - Style.marginL * 2)
 
-                ColumnLayout {
-                    id: cform
+                Flickable {
                     anchors.fill: parent
                     anchors.margins: Style.marginL
-                    spacing: Style.marginS
+                    contentWidth: width
+                    contentHeight: cform.implicitHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: cform
+                        width: parent.width
+                        spacing: Style.marginS
 
                     NText {
                         text: root.cdId === "" ? root.tr("board.newCard", "New card") : root.tr("board.editCard", "Edit card")
@@ -2601,16 +2956,23 @@ Item {
                         }
                     }
 
+                    // Progress: manual slider, or read-only when a checklist drives it.
                     ColumnLayout {
+                        id: progSec
                         Layout.fillWidth: true
                         spacing: Style.marginXXS
+                        property var liveCard: root.cardById(root.cdId)
+                        property bool hasChecklist: progSec.liveCard && (progSec.liveCard.checklist || []).length > 0
                         NText {
-                            text: root.tr("board.progress", "Progress") + ": " + root.cdProgress + "%"
+                            text: root.tr("board.progress", "Progress") + ": "
+                                  + (progSec.hasChecklist ? (progSec.liveCard.progress + "% " + root.tr("board.fromChecklist", "(from checklist)"))
+                                                          : (root.cdProgress + "%"))
                             pointSize: Style.fontSizeXS
                             color: Color.mOnSurfaceVariant
                         }
                         NSlider {
                             Layout.fillWidth: true
+                            visible: !progSec.hasChecklist
                             from: 0; to: 100; stepSize: 5
                             value: root.cdProgress
                             onValueChanged: root.cdProgress = value
@@ -2644,6 +3006,210 @@ Item {
                         }
                     }
 
+                    // Récurrence — regenerates the card with its due advanced when done.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginS
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginXXS
+                            NText { text: root.tr("board.recurrence", "Repeat"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+                            NComboBox {
+                                Layout.fillWidth: true
+                                model: root.recurModel()
+                                currentKey: root.cdRecurFreq
+                                onSelected: key => root.cdRecurFreq = key
+                            }
+                        }
+                        ColumnLayout {
+                            visible: root.cdRecurFreq !== "none"
+                            spacing: Style.marginXXS
+                            NText { text: root.tr("board.every", "Every"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+                            NSpinBox { from: 1; to: 52; stepSize: 1; value: root.cdRecurInterval; onValueChanged: root.cdRecurInterval = value }
+                        }
+                    }
+
+                    // Labels — toggle which board labels apply to this card.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginXXS
+                        RowLayout {
+                            Layout.fillWidth: true
+                            NText { text: root.tr("board.labels", "Labels"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant; Layout.fillWidth: true }
+                            NIconButton {
+                                baseSize: Math.round(Style.baseWidgetSize * 0.7)
+                                icon: "tag"
+                                tooltipText: root.tr("board.manageLabels", "Manage labels")
+                                onClicked: { root.lmName = ""; root.labelMgrOpen = true }
+                            }
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Repeater {
+                                model: root.boardLabels()
+                                delegate: Rectangle {
+                                    id: chip
+                                    required property var modelData
+                                    property bool sel: (root.cdLabels || []).indexOf(modelData.id) >= 0
+                                    implicitWidth: chTxt.implicitWidth + Style.marginS * 2
+                                    implicitHeight: chTxt.implicitHeight + Style.marginXS
+                                    radius: height / 2
+                                    color: chip.sel ? Qt.rgba(root.labelColor(modelData.color).r, root.labelColor(modelData.color).g, root.labelColor(modelData.color).b, 0.30) : Color.mSurfaceVariant
+                                    border.width: chip.sel ? 1 : 0
+                                    border.color: root.labelColor(modelData.color)
+                                    NText {
+                                        id: chTxt
+                                        anchors.centerIn: parent
+                                        text: chip.modelData.name
+                                        pointSize: Style.fontSizeXS
+                                        color: chip.sel ? root.labelColor(chip.modelData.color) : Color.mOnSurfaceVariant
+                                    }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleCdLabel(chip.modelData.id) }
+                                }
+                            }
+                            NText {
+                                visible: root.boardLabels().length === 0
+                                text: root.tr("board.noLabels", "No labels yet — use the tag button to create one.")
+                                pointSize: Style.fontSizeXS
+                                color: Color.mOnSurfaceVariant
+                            }
+                        }
+                    }
+
+                    // Checklist — sub-tasks (live; available once the card exists).
+                    ColumnLayout {
+                        id: clSec
+                        Layout.fillWidth: true
+                        spacing: Style.marginXXS
+                        property var liveCard: root.cardById(root.cdId)
+                        NText { text: root.tr("board.checklist", "Checklist"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+                        Repeater {
+                            model: clSec.liveCard ? (clSec.liveCard.checklist || []) : []
+                            delegate: RowLayout {
+                                id: clItem
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: Style.marginXS
+                                NCheckbox {
+                                    checked: clItem.modelData.done
+                                    label: clItem.modelData.text
+                                    Layout.fillWidth: true
+                                    onToggled: if (root.main) root.main.toggleCheck(root.cdId, clItem.modelData.id)
+                                }
+                                NIconButton {
+                                    baseSize: Math.round(Style.baseWidgetSize * 0.6)
+                                    icon: "trash"
+                                    onClicked: if (root.main) root.main.rmCheck(root.cdId, clItem.modelData.id)
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginXS
+                            visible: root.cdId !== ""
+                            NTextInput {
+                                id: newCheckInput
+                                Layout.fillWidth: true
+                                placeholderText: root.tr("board.addCheckItem", "Add a sub-task…")
+                                onAccepted: if (text !== "" && root.main) { root.main.addCheck(root.cdId, text); text = "" }
+                            }
+                            NIconButton {
+                                baseSize: Math.round(Style.baseWidgetSize * 0.7)
+                                icon: "plus"
+                                onClicked: if (newCheckInput.text !== "" && root.main) { root.main.addCheck(root.cdId, newCheckInput.text); newCheckInput.text = "" }
+                            }
+                        }
+                        NText {
+                            visible: root.cdId === ""
+                            text: root.tr("board.checklistAfterSave", "Save the card first to add a checklist.")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                    }
+
+                    NDivider { Layout.fillWidth: true }
+
+                    // Planifier (time-blocking) — immediate; available once the card exists.
+                    ColumnLayout {
+                        id: schedSec
+                        Layout.fillWidth: true
+                        spacing: Style.marginXXS
+                        property var liveCard: root.cardById(root.cdId)
+                        property bool scheduledLocal: schedSec.liveCard && schedSec.liveCard.schedule && !!schedSec.liveCard.schedule.start
+                        property bool scheduledReal: schedSec.liveCard && !!schedSec.liveCard.calendarEventId
+
+                        NText { text: root.tr("board.schedule", "Schedule"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+
+                        // current status + unschedule
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: schedSec.scheduledLocal || schedSec.scheduledReal
+                            spacing: Style.marginXS
+                            NIcon { icon: "check"; color: Color.mTertiary; pointSize: Style.fontSizeS }
+                            NText {
+                                Layout.fillWidth: true
+                                text: schedSec.scheduledReal
+                                      ? root.tr("board.schedReal", "Linked Google event")
+                                      : ((schedSec.scheduledLocal && schedSec.liveCard)
+                                         ? root.tr("board.schedLocal", "Local block") + " · " + root.schedBlockLabel(schedSec.liveCard.schedule)
+                                         : "")
+                                pointSize: Style.fontSizeXS
+                                color: Color.mOnSurface
+                                elide: Text.ElideRight
+                            }
+                            NButton {
+                                text: root.tr("board.unschedule", "Unschedule")
+                                onClicked: root.applyUnschedule()
+                            }
+                        }
+
+                        // scheduling controls (existing cards only)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: root.cdId !== ""
+                            spacing: Style.marginXXS
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Style.marginS
+                                NTextInput { Layout.fillWidth: true; text: root.cdSchedDate; placeholderText: "YYYY-MM-DD"; onTextChanged: if (text !== root.cdSchedDate) root.cdSchedDate = text }
+                                NTextInput { Layout.preferredWidth: 80 * Style.uiScaleRatio; text: root.cdSchedTime; placeholderText: "HH:MM"; onTextChanged: if (text !== root.cdSchedTime) root.cdSchedTime = text }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Style.marginS
+                                NText { text: root.tr("board.duration", "Duration (min)"); pointSize: Style.fontSizeXS; color: Color.mOnSurfaceVariant }
+                                Item { Layout.fillWidth: true }
+                                NSpinBox { from: 15; to: 1440; stepSize: 15; value: root.cdSchedDurMin; onValueChanged: root.cdSchedDurMin = value }
+                            }
+                            NToggle {
+                                Layout.fillWidth: true
+                                label: root.tr("board.schedAsEvent", "Create as Google event")
+                                checked: root.cdSchedReal
+                                onToggled: (v) => root.cdSchedReal = v
+                            }
+                            NComboBox {
+                                Layout.fillWidth: true
+                                visible: root.cdSchedReal
+                                model: root.calendarModel()
+                                currentKey: root.cdSchedCalendar
+                                onSelected: key => root.cdSchedCalendar = key
+                            }
+                            NButton {
+                                Layout.fillWidth: true
+                                text: (schedSec.scheduledLocal || schedSec.scheduledReal) ? root.tr("board.reschedule", "Reschedule") : root.tr("board.scheduleBtn", "Schedule")
+                                icon: "check"
+                                onClicked: root.applySchedule()
+                            }
+                        }
+                        NText {
+                            visible: root.cdId === ""
+                            text: root.tr("board.scheduleAfterSave", "Save the card first to schedule it.")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: Style.marginXS
@@ -2666,6 +3232,7 @@ Item {
                             enabled: root.cdTitle !== ""
                             onClicked: root.saveCard()
                         }
+                    }
                     }
                 }
             }
@@ -2731,5 +3298,97 @@ Item {
         anchors.fill: parent
         active: root.columnEditing
         sourceComponent: columnEditorComp
+    }
+
+    // ── Label manager overlay ──────────────────────────────────────────────────
+    Component {
+        id: labelMgrComp
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: {}
+
+            NBox {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - Style.marginL * 2, 360 * Style.uiScaleRatio)
+                height: Math.min(lmForm.implicitHeight + Style.marginL * 2, parent.height - Style.marginL * 2)
+
+                Flickable {
+                    anchors.fill: parent
+                    anchors.margins: Style.marginL
+                    contentWidth: width
+                    contentHeight: lmForm.implicitHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: lmForm
+                        width: parent.width
+                        spacing: Style.marginS
+
+                        NText { text: root.tr("board.manageLabels", "Manage labels"); pointSize: Style.fontSizeL; color: Color.mOnSurface }
+
+                        Repeater {
+                            model: root.boardLabels()
+                            delegate: RowLayout {
+                                id: lmRow
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: Style.marginXS
+                                Rectangle { implicitWidth: 12; implicitHeight: 12; radius: 6; color: root.labelColor(lmRow.modelData.color) }
+                                NText { Layout.fillWidth: true; text: lmRow.modelData.name; pointSize: Style.fontSizeS; color: Color.mOnSurface; elide: Text.ElideRight }
+                                NIconButton {
+                                    baseSize: Math.round(Style.baseWidgetSize * 0.6)
+                                    icon: "trash"
+                                    onClicked: if (root.main) root.main.rmLabel(lmRow.modelData.id)
+                                }
+                            }
+                        }
+                        NText {
+                            visible: root.boardLabels().length === 0
+                            text: root.tr("board.noLabels", "No labels yet.")
+                            pointSize: Style.fontSizeXS
+                            color: Color.mOnSurfaceVariant
+                        }
+
+                        NDivider { Layout.fillWidth: true }
+
+                        // create a new label (colour auto-assigned from the theme palette)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.marginXS
+                            Rectangle { implicitWidth: 12; implicitHeight: 12; radius: 6; color: root.labelColor(root.nextLabelToken()) }
+                            NTextInput {
+                                Layout.fillWidth: true
+                                text: root.lmName
+                                placeholderText: root.tr("board.labelName", "New label name…")
+                                onTextChanged: if (text !== root.lmName) root.lmName = text
+                                onAccepted: if (root.lmName !== "" && root.main) { root.main.addLabel(root.lmName, root.nextLabelToken()); root.lmName = "" }
+                            }
+                            NIconButton {
+                                baseSize: Math.round(Style.baseWidgetSize * 0.7)
+                                icon: "plus"
+                                onClicked: if (root.lmName !== "" && root.main) { root.main.addLabel(root.lmName, root.nextLabelToken()); root.lmName = "" }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Style.marginXS
+                            Item { Layout.fillWidth: true }
+                            NButton {
+                                text: root.tr("board.close", "Close")
+                                onClicked: root.labelMgrOpen = false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Loader {
+        anchors.fill: parent
+        active: root.labelMgrOpen
+        sourceComponent: labelMgrComp
     }
 }
