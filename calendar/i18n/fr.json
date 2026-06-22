@@ -37,6 +37,12 @@
         "calendar": "Calendrier",
         "board": "Tableau"
     },
+    "inspect": {
+        "recurring": "Récurrent",
+        "noDesc": "Aucune description",
+        "close": "Fermer",
+        "edit": "Modifier"
+    },
     "board": {
         "addColumn": "Ajouter une colonne",
         "addCard": "Ajouter une carte",

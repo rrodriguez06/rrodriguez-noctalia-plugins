@@ -37,6 +37,12 @@
         "calendar": "Calendar",
         "board": "Board"
     },
+    "inspect": {
+        "recurring": "Recurring",
+        "noDesc": "No description",
+        "close": "Close",
+        "edit": "Edit"
+    },
     "board": {
         "addColumn": "Add column",
         "addCard": "Add card",

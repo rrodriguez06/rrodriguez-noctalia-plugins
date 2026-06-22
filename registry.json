@@ -63,14 +63,14 @@
     {
       "id": "calendar",
       "name": "Calendar",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Gestionnaire d'emploi du temps : fusionne tes calendriers Google (pro + perso), vues mois/semaine/jour, édition des événements récurrents (cet événement / les suivants / toute la série), kanban local avec drag-drop, et synchronisation live. S'appuie sur le backend `calsync` (CLI + daemon).",
       "tags": ["Bar", "Panel", "ControlCenter", "Utility"],
       "official": false,
       "minNoctaliaVersion": "4.5.0",
-      "lastUpdated": "2026-06-21T12:00:00Z",
+      "lastUpdated": "2026-06-22T09:00:00Z",
       "entryPoints": {
         "main": "Main.qml",
         "barWidget": "BarWidget.qml",

@@ -40,6 +40,10 @@ Item {
     property string edInstanceStart: ""
     property string edScope: "this" // this | following | all
 
+    // Inspection (read-only) state — clicking an event opens this first.
+    property bool inspecting: false
+    property var insEvent: null
+
     // Top-level tab (0 = calendar, 1 = board).
     property int activeTab: 0
 
@@ -109,15 +113,23 @@ Item {
     }
 
     // ── Editor helpers ───────────────────────────────────────────────────────
-    function openNew(day) {
+    // hour (optional): pre-fills the time when creating from an hour-grid slot.
+    function openNew(day, hour) {
         var d = day ? day : (main ? main.selectedDate : new Date())
         root.edId = ""
         root.edSummary = ""
         root.edAllDay = false
         root.edStartDate = Qt.formatDate(d, "yyyy-MM-dd")
         root.edEndDate = Qt.formatDate(d, "yyyy-MM-dd")
-        root.edStartTime = "09:00"
-        root.edEndTime = "10:00"
+        if (hour !== undefined && hour !== null) {
+            var hh = (hour < 10 ? "0" : "") + hour
+            var eh = Math.min(hour + 1, 23)
+            root.edStartTime = hh + ":00"
+            root.edEndTime = (eh < 10 ? "0" : "") + eh + ":00"
+        } else {
+            root.edStartTime = "09:00"
+            root.edEndTime = "10:00"
+        }
         root.edLocation = ""
         root.edDesc = ""
         root.edRecurring = false
@@ -143,6 +155,18 @@ Item {
         root.edInstanceStart = ev.instanceStart || ""
         root.edScope = "this" // safest default for a recurring occurrence
         root.editing = true
+    }
+
+    // Clicking an event opens a read-only inspection first; "Edit" switches to the
+    // editor (so a misclick never drops straight into an edit form).
+    function openInspect(ev) {
+        root.insEvent = ev
+        root.inspecting = true
+    }
+    function editFromInspect() {
+        var ev = root.insEvent
+        root.inspecting = false
+        if (ev) root.openEdit(ev)
     }
 
     function buildISO(dateStr, timeStr) {
@@ -300,11 +324,19 @@ Item {
         id: panelContainer
         anchors.fill: parent
 
+        // Opaque panel background (so the calendar reads as a solid surface rather
+        // than letting the shell/blur show through).
+        Rectangle {
+            anchors.fill: parent
+            color: Color.mSurface
+            radius: Style.radiusL
+        }
+
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: Style.marginL
             spacing: Style.marginM
-            opacity: (root.editing || root.cardEditing || root.columnEditing) ? 0.15 : 1.0
+            opacity: (root.editing || root.cardEditing || root.columnEditing || root.inspecting) ? 0.15 : 1.0
 
             // ── Top-level tabs (Calendar / Board) ─────────────────────────────
             NTabBar {
@@ -415,6 +447,11 @@ Item {
         // ── Editor overlays ───────────────────────────────────────────────────
         Loader {
             anchors.fill: parent
+            active: root.inspecting
+            sourceComponent: inspectComp
+        }
+        Loader {
+            anchors.fill: parent
             active: root.editing
             sourceComponent: editorComp
         }
@@ -460,6 +497,8 @@ Item {
         property var packed: root.packEvents(col.events)
         // Live fraction-of-day for the "now" line; ticked every minute.
         property real nowFrac: root.hourFrac(new Date())
+        // Hour row currently hovered (empty space) for click-to-create feedback.
+        property int hoverHour: -1
         implicitHeight: (endH - startH) * root.hourPx + root.topPad * 2
 
         Timer {
@@ -490,6 +529,31 @@ Item {
             }
         }
 
+        // hovered-hour highlight + click-to-create (below events, so events win)
+        Rectangle {
+            visible: col.hoverHour >= col.startH && col.hoverHour < col.endH
+            x: 1
+            width: col.width - 2
+            y: (col.hoverHour - col.startH) * root.hourPx + root.topPad
+            height: root.hourPx
+            radius: Style.radiusXS
+            color: Qt.rgba(Color.mHover.r, Color.mHover.g, Color.mHover.b, 0.5)
+        }
+        MouseArea {
+            id: slotMA
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            acceptedButtons: Qt.LeftButton
+            function hourAt(my) {
+                var h = Math.floor((my - root.topPad) / root.hourPx) + col.startH
+                return Math.max(col.startH, Math.min(h, col.endH - 1))
+            }
+            onPositionChanged: mouse => col.hoverHour = hourAt(mouse.y)
+            onExited: col.hoverHour = -1
+            onClicked: mouse => { if (root.main) root.openNew(col.day, slotMA.hourAt(mouse.y)) }
+        }
+
         // timed events, absolutely positioned by time, packed into lanes
         Repeater {
             model: col.packed
@@ -504,13 +568,17 @@ Item {
                 property real topH: Math.max(sH, col.startH)
                 property real botH: Math.min(Math.max(eH, sH + 0.25), col.endH)
                 property real laneW: (col.width - 4) / modelData.lanes
+                property bool hovered: evMA.containsMouse
                 visible: eH > col.startH && sH < col.endH
                 x: 2 + modelData.lane * laneW
                 width: laneW - 1
                 y: (topH - col.startH) * root.hourPx + root.topPad
                 height: Math.max((botH - topH) * root.hourPx, 14)
                 radius: Style.radiusXS
-                color: Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, 0.22)
+                color: Qt.rgba(evRect.base.r, evRect.base.g, evRect.base.b, evRect.hovered ? 0.42 : 0.22)
+                border.width: evRect.hovered ? 1 : 0
+                border.color: evRect.base
+                Behavior on color { ColorAnimation { duration: 100 } }
 
                 Rectangle { width: 3; height: parent.height; radius: 1; color: evRect.base }
                 ColumnLayout {
@@ -533,7 +601,13 @@ Item {
                         color: Color.mOnSurfaceVariant
                     }
                 }
-                MouseArea { anchors.fill: parent; onClicked: root.openEdit(evRect.ev) }
+                MouseArea {
+                    id: evMA
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.openInspect(evRect.ev)
+                }
             }
         }
 
@@ -594,13 +668,19 @@ Item {
                         property bool inMonth: root.main && day.getMonth() === root.main.selectedDate.getMonth()
                         property bool isToday: root.main && root.main.sameDay(day, new Date())
                         property var dayEvents: root.main ? root.main.eventsOnDay(day) : []
+                        property bool hovered: cellMA.containsMouse
 
-                        color: inMonth ? Color.mSurface : Color.mSurfaceVariant
-                        border.width: isToday ? 2 : 0
-                        border.color: Color.mPrimary
+                        color: hovered ? Color.mHover
+                                       : (inMonth ? Color.mSurfaceVariant : "transparent")
+                        border.width: isToday ? 2 : (hovered ? 1 : 0)
+                        border.color: isToday ? Color.mPrimary : Color.mOutline
+                        Behavior on color { ColorAnimation { duration: 100 } }
 
                         MouseArea {
+                            id: cellMA
                             anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
                             onClicked: { if (root.main) { root.main.selectedDate = cell.day; root.main.setView("day") } }
                         }
 
@@ -618,26 +698,34 @@ Item {
                             Repeater {
                                 model: Math.min(cell.dayEvents.length, 3)
                                 delegate: Rectangle {
+                                    id: chip
                                     required property int index
                                     Layout.fillWidth: true
                                     implicitHeight: lbl.implicitHeight + 2
                                     radius: 2
-                                    color: Qt.rgba(0, 0, 0, 0)
                                     property var ev: cell.dayEvents[index]
+                                    property color base: ev.color
+                                    color: chipMA.containsMouse ? Qt.rgba(base.r, base.g, base.b, 0.22) : "transparent"
                                     RowLayout {
                                         anchors.fill: parent
                                         spacing: 2
-                                        Rectangle { width: 3; height: parent.height; radius: 1; color: ev.color }
+                                        Rectangle { width: 3; height: parent.height; radius: 1; color: chip.ev.color }
                                         NText {
                                             id: lbl
                                             Layout.fillWidth: true
-                                            text: (ev.allDay ? "" : Qt.formatDateTime(ev.start, "hh:mm") + " ") + ev.summary
+                                            text: (chip.ev.allDay ? "" : Qt.formatDateTime(chip.ev.start, "hh:mm") + " ") + chip.ev.summary
                                             pointSize: Style.fontSizeXS
                                             color: Color.mOnSurface
                                             elide: Text.ElideRight
                                         }
                                     }
-                                    MouseArea { anchors.fill: parent; onClicked: root.openEdit(ev) }
+                                    MouseArea {
+                                        id: chipMA
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.openInspect(chip.ev)
+                                    }
                                 }
                             }
 
@@ -696,7 +784,9 @@ Item {
                         Layout.fillWidth: true
                         implicitHeight: wh.implicitHeight + Style.marginXS * 2
                         radius: Style.radiusS
-                        color: hdrRect.isToday ? Color.mPrimary : Color.mSurfaceVariant
+                        color: hdrRect.isToday ? Color.mPrimary
+                                               : (hdrMA.containsMouse ? Color.mHover : Color.mSurfaceVariant)
+                        Behavior on color { ColorAnimation { duration: 100 } }
                         ColumnLayout {
                             id: wh
                             anchors.centerIn: parent
@@ -704,7 +794,7 @@ Item {
                             NText { Layout.alignment: Qt.AlignHCenter; text: Qt.formatDateTime(hdrRect.day, "ddd"); pointSize: Style.fontSizeXS; color: hdrRect.isToday ? Color.mOnPrimary : Color.mOnSurfaceVariant }
                             NText { Layout.alignment: Qt.AlignHCenter; text: hdrRect.day.getDate(); pointSize: Style.fontSizeM; color: hdrRect.isToday ? Color.mOnPrimary : Color.mOnSurface }
                         }
-                        MouseArea { anchors.fill: parent; onClicked: { if (root.main) { root.main.selectedDate = hdrRect.day; root.main.setView("day") } } }
+                        MouseArea { id: hdrMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (root.main) { root.main.selectedDate = hdrRect.day; root.main.setView("day") } } }
                     }
                 }
             }
@@ -733,9 +823,10 @@ Item {
                                 Layout.fillWidth: true
                                 implicitHeight: 16
                                 radius: Style.radiusXS
-                                color: Qt.rgba(adChip.base.r, adChip.base.g, adChip.base.b, 0.22)
-                                NText { anchors.fill: parent; anchors.leftMargin: 4; verticalAlignment: Text.AlignVCenter; text: modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
-                                MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
+                                color: Qt.rgba(adChip.base.r, adChip.base.g, adChip.base.b, adChipMA.containsMouse ? 0.42 : 0.22)
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                                NText { anchors.fill: parent; anchors.leftMargin: 4; verticalAlignment: Text.AlignVCenter; text: adChip.modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
+                                MouseArea { id: adChipMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openInspect(adChip.modelData) }
                             }
                         }
                     }
@@ -807,15 +898,16 @@ Item {
                             Layout.fillWidth: true
                             implicitHeight: 20
                             radius: Style.radiusXS
-                            color: Qt.rgba(adRect.base.r, adRect.base.g, adRect.base.b, 0.22)
+                            color: Qt.rgba(adRect.base.r, adRect.base.g, adRect.base.b, adRectMA.containsMouse ? 0.42 : 0.22)
+                            Behavior on color { ColorAnimation { duration: 100 } }
                             RowLayout {
                                 anchors.fill: parent
                                 anchors.margins: 2
                                 spacing: 4
                                 Rectangle { width: 3; Layout.fillHeight: true; radius: 1; color: adRect.base }
-                                NText { Layout.fillWidth: true; text: modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
+                                NText { Layout.fillWidth: true; text: adRect.modelData.summary; pointSize: Style.fontSizeXS; color: Color.mOnSurface; elide: Text.ElideRight }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: root.openEdit(modelData) }
+                            MouseArea { id: adRectMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openInspect(adRect.modelData) }
                         }
                     }
                 }
@@ -843,6 +935,118 @@ Item {
                         startH: dayWrap.sH
                         endH: dayWrap.eH
                         showNow: root.main && root.main.sameDay(root.main.selectedDate, new Date())
+                    }
+                }
+            }
+        }
+    }
+
+    // ====================================================================== //
+    //  Event inspection overlay (read-only; "Edit" switches to the editor)
+    // ====================================================================== //
+    Component {
+        id: inspectComp
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.inspecting = false // click outside closes
+
+            NBox {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - Style.marginL * 2, 480 * Style.uiScaleRatio)
+                implicitHeight: iform.implicitHeight + Style.marginL * 2
+                MouseArea { anchors.fill: parent; onClicked: {} } // swallow inside clicks
+
+                ColumnLayout {
+                    id: iform
+                    anchors.fill: parent
+                    anchors.margins: Style.marginL
+                    spacing: Style.marginS
+
+                    // Title + source dot + recurring badge
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.marginS
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 10; height: 10; radius: 5
+                            color: root.insEvent ? root.insEvent.color : Color.mPrimary
+                        }
+                        NText {
+                            Layout.fillWidth: true
+                            text: root.insEvent ? root.insEvent.summary : ""
+                            pointSize: Style.fontSizeL
+                            color: Color.mOnSurface
+                            wrapMode: Text.WordWrap
+                        }
+                        Rectangle {
+                            visible: root.insEvent && root.insEvent.recurring === true
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: Style.radiusXS
+                            color: Color.mSecondary
+                            implicitWidth: recurLbl.implicitWidth + Style.marginS
+                            implicitHeight: recurLbl.implicitHeight + 4
+                            NText {
+                                id: recurLbl
+                                anchors.centerIn: parent
+                                text: root.tr("inspect.recurring", "Recurring")
+                                pointSize: Style.fontSizeXS
+                                color: Color.mOnSecondary
+                            }
+                        }
+                    }
+
+                    // Date + time range
+                    NText {
+                        Layout.fillWidth: true
+                        text: root.insEvent ? (Qt.formatDate(root.insEvent.start, "dddd d MMMM yyyy") + "  ·  " + root.timeRange(root.insEvent)) : ""
+                        pointSize: Style.fontSizeS
+                        color: Color.mOnSurfaceVariant
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // Location
+                    NText {
+                        visible: root.insEvent && root.insEvent.location
+                        Layout.fillWidth: true
+                        text: "📍  " + (root.insEvent ? root.insEvent.location : "")
+                        pointSize: Style.fontSizeS
+                        color: Color.mOnSurfaceVariant
+                        wrapMode: Text.WordWrap
+                    }
+
+                    NDivider { Layout.fillWidth: true }
+
+                    // Description (multi-line, scrollable)
+                    Flickable {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(descText.implicitHeight, 220 * Style.uiScaleRatio)
+                        contentWidth: width
+                        contentHeight: descText.implicitHeight
+                        clip: true
+                        NText {
+                            id: descText
+                            width: parent.width
+                            text: (root.insEvent && root.insEvent.description) ? root.insEvent.description : root.tr("inspect.noDesc", "No description")
+                            pointSize: Style.fontSizeS
+                            color: (root.insEvent && root.insEvent.description) ? Color.mOnSurface : Color.mOnSurfaceVariant
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Style.marginXS
+                        spacing: Style.marginS
+                        Item { Layout.fillWidth: true }
+                        NButton {
+                            text: root.tr("inspect.close", "Close")
+                            onClicked: root.inspecting = false
+                        }
+                        NButton {
+                            text: root.tr("inspect.edit", "Edit")
+                            icon: "pencil"
+                            onClicked: root.editFromInspect()
+                        }
                     }
                 }
             }
