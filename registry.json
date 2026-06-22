@@ -63,7 +63,7 @@
     {
       "id": "calendar",
       "name": "Calendar",
-      "version": "0.3.6",
+      "version": "0.4.0",
       "author": "rrodriguez06",
       "license": "MIT",
       "description": "Gestionnaire d'emploi du temps : fusionne tes calendriers Google (pro + perso), vues mois/semaine/jour, édition des événements récurrents (cet événement / les suivants / toute la série), kanban local avec drag-drop, et synchronisation live. S'appuie sur le backend `calsync` (CLI + daemon).",
