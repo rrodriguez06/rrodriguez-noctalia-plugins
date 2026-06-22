@@ -113,19 +113,30 @@ Item {
     }
 
     // ── Editor helpers ───────────────────────────────────────────────────────
-    // hour (optional): pre-fills the time when creating from an hour-grid slot.
-    function openNew(day, hour) {
+    // frac is a fraction-of-day in hours (e.g. 9.5 = 09:30) → "HH:MM".
+    function fracToTime(f) {
+        var h = Math.floor(f)
+        var m = Math.round((f - h) * 60)
+        if (m >= 60) { h += 1; m -= 60 }
+        return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m
+    }
+
+    // startFrac/endFrac (optional, in hours) pre-fill the time when creating from
+    // an hour-grid slot (click) or a drag selection. endFrac defaults to +1h; a
+    // range shorter than 30 min is widened to 30 min.
+    function openNew(day, startFrac, endFrac) {
         var d = day ? day : (main ? main.selectedDate : new Date())
         root.edId = ""
         root.edSummary = ""
         root.edAllDay = false
         root.edStartDate = Qt.formatDate(d, "yyyy-MM-dd")
         root.edEndDate = Qt.formatDate(d, "yyyy-MM-dd")
-        if (hour !== undefined && hour !== null) {
-            var hh = (hour < 10 ? "0" : "") + hour
-            var eh = Math.min(hour + 1, 23)
-            root.edStartTime = hh + ":00"
-            root.edEndTime = (eh < 10 ? "0" : "") + eh + ":00"
+        if (startFrac !== undefined && startFrac !== null) {
+            var a = startFrac
+            var b = (endFrac !== undefined && endFrac !== null) ? endFrac : startFrac + 1
+            if (b - a < 0.5) b = a + 0.5
+            root.edStartTime = root.fracToTime(a)
+            root.edEndTime = root.fracToTime(b)
         } else {
             root.edStartTime = "09:00"
             root.edEndTime = "10:00"
@@ -522,6 +533,9 @@ Item {
         property real nowFrac: root.hourFrac(new Date())
         // Hour row currently hovered (empty space) for click-to-create feedback.
         property int hoverHour: -1
+        // Drag-to-create selection (fraction-of-day in hours, -1 = none).
+        property real selStartFrac: -1
+        property real selEndFrac: -1
         implicitHeight: (endH - startH) * root.hourPx + root.topPad * 2
 
         Timer {
@@ -559,9 +573,9 @@ Item {
             }
         }
 
-        // hovered-hour highlight + click-to-create (below events, so events win)
+        // hovered-hour highlight (only when idle, i.e. not mid-selection)
         Rectangle {
-            visible: col.hoverHour >= col.startH && col.hoverHour < col.endH
+            visible: col.hoverHour >= col.startH && col.hoverHour < col.endH && col.selStartFrac < 0
             x: 1
             width: col.width - 2
             y: (col.hoverHour - col.startH) * root.hourPx + root.topPad
@@ -569,19 +583,62 @@ Item {
             radius: Style.radiusXS
             color: Qt.rgba(Color.mHover.r, Color.mHover.g, Color.mHover.b, 0.5)
         }
+
+        // drag-to-create selection preview (snapped to the half hour)
+        Rectangle {
+            visible: col.selStartFrac >= 0 && col.selEndFrac >= 0
+            x: 1
+            width: col.width - 2
+            y: (Math.min(col.selStartFrac, col.selEndFrac) - col.startH) * root.hourPx + root.topPad
+            height: Math.max(Math.abs(col.selEndFrac - col.selStartFrac) * root.hourPx, 2)
+            radius: Style.radiusXS
+            color: Qt.rgba(Color.mPrimary.r, Color.mPrimary.g, Color.mPrimary.b, 0.30)
+            border.width: 1
+            border.color: Color.mPrimary
+            NText {
+                anchors.centerIn: parent
+                visible: parent.height > 18
+                text: root.fracToTime(Math.min(col.selStartFrac, col.selEndFrac)) + " – " + root.fracToTime(Math.max(col.selStartFrac, col.selEndFrac))
+                pointSize: Style.fontSizeXS
+                color: Color.mOnSurface
+            }
+        }
+
+        // empty-slot interaction: hover highlight + drag-to-create (30-min snap).
+        // preventStealing keeps the drag here (no Flickable scroll); wheel still scrolls.
         MouseArea {
             id: slotMA
             anchors.fill: parent
             hoverEnabled: true
+            preventStealing: true
             cursorShape: Qt.PointingHandCursor
             acceptedButtons: Qt.LeftButton
-            function hourAt(my) {
-                var h = Math.floor((my - root.topPad) / root.hourPx) + col.startH
-                return Math.max(col.startH, Math.min(h, col.endH - 1))
+            function fracAt(my) {
+                var snapped = Math.round(((my - root.topPad) / root.hourPx + col.startH) * 2) / 2
+                return Math.max(col.startH, Math.min(snapped, col.endH))
             }
-            onPositionChanged: mouse => col.hoverHour = hourAt(mouse.y)
-            onExited: col.hoverHour = -1
-            onClicked: mouse => { if (root.main) root.openNew(col.day, slotMA.hourAt(mouse.y)) }
+            onPressed: mouse => {
+                col.selStartFrac = slotMA.fracAt(mouse.y)
+                col.selEndFrac = col.selStartFrac
+                col.hoverHour = -1
+            }
+            onPositionChanged: mouse => {
+                if (col.selStartFrac >= 0)
+                    col.selEndFrac = slotMA.fracAt(mouse.y)
+                else
+                    col.hoverHour = Math.floor((mouse.y - root.topPad) / root.hourPx) + col.startH
+            }
+            onReleased: mouse => {
+                if (col.selStartFrac < 0) return
+                var lo = Math.min(col.selStartFrac, col.selEndFrac)
+                var hi = Math.max(col.selStartFrac, col.selEndFrac)
+                col.selStartFrac = -1
+                col.selEndFrac = -1
+                if (hi - lo < 0.5) hi = lo + 1 // click (no real drag) → 1h event
+                if (root.main) root.openNew(col.day, lo, hi)
+            }
+            onExited: { if (col.selStartFrac < 0) col.hoverHour = -1 }
+            onCanceled: { col.selStartFrac = -1; col.selEndFrac = -1; col.hoverHour = -1 }
         }
 
         // timed events, absolutely positioned by time, packed into lanes
