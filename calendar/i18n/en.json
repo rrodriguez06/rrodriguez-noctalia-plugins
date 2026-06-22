@@ -95,6 +95,10 @@
         "binPath": "calsync binary",
         "binPathDesc": "Path or name of the calsync CLI (must be on PATH).",
         "enableTasks": "Link the board to Google Tasks",
-        "enableTasksDesc": "Shows a “Sync Tasks” button on the board. Requires re-running `calsync auth` to grant the Tasks scope."
+        "enableTasksDesc": "Shows a “Sync Tasks” button on the board. Requires re-running `calsync auth` to grant the Tasks scope.",
+        "bar": "Bar widget",
+        "barDesc": "Date/time format shown in the bar (Qt format, e.g. HH:mm ddd, MMM dd).",
+        "barFormat": "Horizontal bar",
+        "barFormatVertical": "Vertical bar"
     }
 }

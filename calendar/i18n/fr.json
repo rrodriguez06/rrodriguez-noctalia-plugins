@@ -95,6 +95,10 @@
         "binPath": "Binaire calsync",
         "binPathDesc": "Chemin ou nom du CLI calsync (doit être dans le PATH).",
         "enableTasks": "Lier le tableau à Google Tasks",
-        "enableTasksDesc": "Affiche un bouton « Sync Tasks » sur le tableau. Nécessite de relancer `calsync auth` pour accorder le scope Tasks."
+        "enableTasksDesc": "Affiche un bouton « Sync Tasks » sur le tableau. Nécessite de relancer `calsync auth` pour accorder le scope Tasks.",
+        "bar": "Widget de barre",
+        "barDesc": "Format de date/heure affiché dans la barre (format Qt, ex. HH:mm ddd, MMM dd).",
+        "barFormat": "Barre horizontale",
+        "barFormatVertical": "Barre verticale"
     }
 }

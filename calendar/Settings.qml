@@ -19,6 +19,8 @@ ColumnLayout {
     property bool ensureDaemon: true
     property bool enableTasks: false
     property string binPath: "calsync"
+    property string barFormat: "HH:mm ddd, MMM dd"
+    property string barFormatVertical: "HH mm - dd MM"
     property bool _loaded: false
 
     function tr(k, fb) { return pluginApi ? pluginApi.tr(k) : fb }
@@ -42,6 +44,8 @@ ColumnLayout {
         ensureDaemon = s.ensureDaemon !== false
         enableTasks = s.enableTasks === true
         binPath = s.binPath ?? "calsync"
+        barFormat = s.barFormat ?? "HH:mm ddd, MMM dd"
+        barFormatVertical = s.barFormatVertical ?? "HH mm - dd MM"
         _loaded = true
     }
 
@@ -58,6 +62,8 @@ ColumnLayout {
         s.ensureDaemon = root.ensureDaemon
         s.enableTasks = root.enableTasks
         s.binPath = root.binPath
+        s.barFormat = root.barFormat
+        s.barFormatVertical = root.barFormatVertical
         pluginApi.saveSettings()
     }
 
@@ -248,6 +254,39 @@ ColumnLayout {
             Layout.fillWidth: true
             text: root.binPath
             onEditingFinished: { root.binPath = text; root.saveSettings() }
+        }
+    }
+
+    NDivider { Layout.fillWidth: true; Layout.topMargin: Style.marginXS; Layout.bottomMargin: Style.marginXS }
+
+    NLabel {
+        label: root.tr("settings.bar", "Bar widget")
+        description: root.tr("settings.barDesc", "Date/time format shown in the bar (Qt format, e.g. HH:mm ddd, MMM dd).")
+    }
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.marginS
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Style.marginXS
+            NLabel { label: root.tr("settings.barFormat", "Horizontal bar") }
+            NTextInput {
+                Layout.fillWidth: true
+                text: root.barFormat
+                placeholderText: "HH:mm ddd, MMM dd"
+                onEditingFinished: { root.barFormat = text; root.saveSettings() }
+            }
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Style.marginXS
+            NLabel { label: root.tr("settings.barFormatVertical", "Vertical bar") }
+            NTextInput {
+                Layout.fillWidth: true
+                text: root.barFormatVertical
+                placeholderText: "HH mm - dd MM"
+                onEditingFinished: { root.barFormatVertical = text; root.saveSettings() }
+            }
         }
     }
 }

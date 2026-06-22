@@ -28,6 +28,8 @@
       "ensureDaemon": true,
       "syncOnOpen": true,
       "enableTasks": false,
+      "barFormat": "HH:mm ddd, MMM dd",
+      "barFormatVertical": "HH mm - dd MM",
       "calendars": []
     }
   }

@@ -1,12 +1,15 @@
 import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import qs.Commons
 import qs.Widgets
 import qs.Modules.Bar.Extras
 import qs.Services.UI
 
-// Bar pill: opens the calendar panel; tooltip shows today's date, event count
-// and the next upcoming event.
+// Bar widget: a Clock-style capsule showing date + time (mirrors Noctalia's
+// official Clock). Left-click opens the calendar panel; right-click shows the
+// context menu; hover shows a tooltip with today's date, event count and the
+// next upcoming event.
 Item {
     id: root
     property ShellScreen screen
@@ -17,9 +20,27 @@ Item {
     property var pluginApi: null
 
     readonly property var main: pluginApi?.mainInstance ?? null
+    readonly property var pset: pluginApi?.pluginSettings ?? null
 
-    implicitWidth: pill.width
-    implicitHeight: pill.height
+    // Bar geometry/typography, resolved per-screen like the official Clock.
+    readonly property string screenName: screen ? screen.name : ""
+    readonly property string barPosition: Settings.getBarPositionForScreen(screenName)
+    readonly property bool isBarVertical: barPosition === "left" || barPosition === "right"
+    readonly property real capsuleHeight: Style.getCapsuleHeightForScreen(screenName)
+    readonly property real barFontSize: Style.getBarFontSizeForScreen(screenName)
+    readonly property var now: Time.now
+
+    // Display formats (overridable via plugin settings; defaults match the Clock).
+    readonly property string formatHorizontal: (pset && pset.barFormat) ? pset.barFormat : "HH:mm ddd, MMM dd"
+    readonly property string formatVertical: (pset && pset.barFormatVertical) ? pset.barFormatVertical : "HH mm - dd MM"
+
+    readonly property color textColor: Color.resolveColorKey("none")
+
+    readonly property real contentWidth: isBarVertical ? capsuleHeight : Math.round(horizontalLoader.implicitWidth + Style.margin2M)
+    readonly property real contentHeight: isBarVertical ? Math.round(verticalLoader.implicitHeight + Style.margin2S) : capsuleHeight
+
+    implicitWidth: contentWidth
+    implicitHeight: contentHeight
 
     function tip() {
         var t = Qt.formatDateTime(new Date(), "dddd d MMMM")
@@ -29,15 +50,117 @@ Item {
         return t
     }
 
-    BarPill {
-        id: pill
-        screen: root.screen
-        oppositeDirection: BarService.getPillDirection(root)
-        forceClose: true
-        icon: "calendar"
-        tooltipText: root.tip()
-        onClicked: if (root.pluginApi) root.pluginApi.togglePanel(root.screen, pill)
-        onRightClicked: PanelService.showContextMenu(contextMenu, root, root.screen)
+    // ── Visual capsule ────────────────────────────────────────────────────────
+    Rectangle {
+        id: visualClock
+        width: root.contentWidth
+        height: root.contentHeight
+        anchors.centerIn: parent
+        radius: Style.radiusL
+        color: Style.capsuleColor
+        border.color: Style.capsuleBorderColor
+        border.width: Style.capsuleBorderWidth
+
+        Item {
+            anchors.centerIn: parent
+
+            // Horizontal bars: a single line (or two if the format has a newline).
+            Loader {
+                id: horizontalLoader
+                active: !root.isBarVertical
+                anchors.centerIn: parent
+                sourceComponent: ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: Settings.data.bar.showCapsule ? -5 : -3
+                    Repeater {
+                        id: hRepeater
+                        model: I18n.locale.toString(root.now, root.formatHorizontal.trim()).split("\\n")
+                        NText {
+                            visible: text !== ""
+                            text: modelData
+                            family: Settings.data.ui.fontDefault
+                            Binding on pointSize {
+                                value: {
+                                    if (hRepeater.model.length === 1)
+                                        return root.barFontSize
+                                    if (hRepeater.model.length === 2)
+                                        return (index === 0) ? Math.round(root.barFontSize * 0.9) : Math.round(root.barFontSize * 0.75)
+                                    return Math.round(root.barFontSize * 0.75)
+                                }
+                            }
+                            applyUiScale: false
+                            color: root.textColor
+                            wrapMode: Text.WordWrap
+                            Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+                            features: ({ "tnum": 1 })
+                        }
+                    }
+                }
+            }
+
+            // Vertical bars: one stacked token per space-separated chunk.
+            Loader {
+                id: verticalLoader
+                active: root.isBarVertical
+                anchors.centerIn: parent
+                sourceComponent: ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: -2
+                    Repeater {
+                        model: I18n.locale.toString(root.now, root.formatVertical.trim()).split(" ")
+                        delegate: NText {
+                            visible: text !== ""
+                            text: modelData
+                            family: Settings.data.ui.fontDefault
+                            pointSize: root.barFontSize
+                            applyUiScale: false
+                            color: root.textColor
+                            wrapMode: Text.WordWrap
+                            Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+                            features: ({ "tnum": 1 })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Tooltip (event-aware) ─────────────────────────────────────────────────
+    MouseArea {
+        id: clockMouseArea
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onEntered: {
+            if (!(root.main && root.main.panelOpen)) {
+                TooltipService.show(root, root.tip(), BarService.getTooltipDirection(root.screenName))
+                tooltipRefreshTimer.start()
+            }
+        }
+        onExited: {
+            tooltipRefreshTimer.stop()
+            TooltipService.hide()
+        }
+        onClicked: mouse => {
+            TooltipService.hide()
+            if (mouse.button === Qt.RightButton) {
+                PanelService.showContextMenu(contextMenu, root, root.screen)
+            } else if (root.pluginApi) {
+                root.pluginApi.togglePanel(root.screen, visualClock)
+            }
+        }
+    }
+
+    // Keep the tooltip's date/event info fresh while hovering.
+    Timer {
+        id: tooltipRefreshTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            if (clockMouseArea.containsMouse && !(root.main && root.main.panelOpen))
+                TooltipService.updateText(root.tip())
+        }
     }
 
     NPopupContextMenu {
