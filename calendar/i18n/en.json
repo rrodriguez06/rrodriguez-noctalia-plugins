@@ -43,7 +43,8 @@
         "recurring": "Recurring",
         "noDesc": "No description",
         "close": "Close",
-        "edit": "Edit"
+        "edit": "Edit",
+        "join": "Join with Google Meet"
     },
     "board": {
         "addColumn": "Add column",

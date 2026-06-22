@@ -123,7 +123,7 @@ Item {
 
     // startFrac/endFrac (optional, in hours) pre-fill the time when creating from
     // an hour-grid slot (click) or a drag selection. endFrac defaults to +1h; a
-    // range shorter than 30 min is widened to 30 min.
+    // range shorter than 15 min is widened to 15 min.
     function openNew(day, startFrac, endFrac) {
         var d = day ? day : (main ? main.selectedDate : new Date())
         root.edId = ""
@@ -134,7 +134,7 @@ Item {
         if (startFrac !== undefined && startFrac !== null) {
             var a = startFrac
             var b = (endFrac !== undefined && endFrac !== null) ? endFrac : startFrac + 1
-            if (b - a < 0.5) b = a + 0.5
+            if (b - a < 0.25) b = a + 0.25
             root.edStartTime = root.fracToTime(a)
             root.edEndTime = root.fracToTime(b)
         } else {
@@ -604,7 +604,7 @@ Item {
             }
         }
 
-        // empty-slot interaction: hover highlight + drag-to-create (30-min snap).
+        // empty-slot interaction: hover highlight + drag-to-create (15-min snap).
         // preventStealing keeps the drag here (no Flickable scroll); wheel still scrolls.
         MouseArea {
             id: slotMA
@@ -614,7 +614,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             acceptedButtons: Qt.LeftButton
             function fracAt(my) {
-                var snapped = Math.round(((my - root.topPad) / root.hourPx + col.startH) * 2) / 2
+                var snapped = Math.round(((my - root.topPad) / root.hourPx + col.startH) * 4) / 4 // 15-min snap
                 return Math.max(col.startH, Math.min(snapped, col.endH))
             }
             onPressed: mouse => {
@@ -634,7 +634,7 @@ Item {
                 var hi = Math.max(col.selStartFrac, col.selEndFrac)
                 col.selStartFrac = -1
                 col.selEndFrac = -1
-                if (hi - lo < 0.5) hi = lo + 1 // click (no real drag) → 1h event
+                if (hi - lo < 0.25) hi = lo + 1 // click (no real drag) → 1h event
                 if (root.main) root.openNew(col.day, lo, hi)
             }
             onExited: { if (col.selStartFrac < 0) col.hoverHour = -1 }
@@ -1100,6 +1100,18 @@ Item {
                         pointSize: Style.fontSizeS
                         color: Color.mOnSurfaceVariant
                         wrapMode: Text.WordWrap
+                    }
+
+                    // Video-conference link (Google Meet)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: root.insEvent && root.insEvent.meetLink
+                        NButton {
+                            text: root.tr("inspect.join", "Join with Google Meet")
+                            icon: "external-link"
+                            onClicked: if (root.insEvent && root.insEvent.meetLink) Qt.openUrlExternally(root.insEvent.meetLink)
+                        }
+                        Item { Layout.fillWidth: true }
                     }
 
                     NDivider { Layout.fillWidth: true }

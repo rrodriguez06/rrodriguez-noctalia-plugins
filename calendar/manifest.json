@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "0.3.4",
+  "version": "0.3.6",
   "minNoctaliaVersion": "4.5.0",
   "author": "rrodriguez06",
   "license": "MIT",

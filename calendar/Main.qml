@@ -169,6 +169,7 @@ Item {
                 "summary": e.summary || "(sans titre)",
                 "location": e.location || "",
                 "description": e.description || "",
+                "meetLink": e.meetLink || "",
                 "allDay": e.allDay === true,
                 "recurring": e.recurring === true,
                 "recurringEventId": e.recurringEventId || "",
